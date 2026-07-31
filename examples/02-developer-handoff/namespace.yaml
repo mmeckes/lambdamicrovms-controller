@@ -1,0 +1,10 @@
+# The developer's namespace. The application runs here; it holds no ACK custom
+# resources of its own.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sandbox-app
+  labels:
+    # Purely conventional, but useful for showing at a glance which namespaces
+    # consume platform-provided MicroVM images.
+    microvm-consumer: "true"

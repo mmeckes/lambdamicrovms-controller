@@ -30,4 +30,5 @@ Declarative, reviewed, slow-changing. These belong in git.
 
 | Example | What it shows |
 | --- | --- |
+| [`02-developer-handoff/`](02-developer-handoff/) | `FieldExport` publishing the image ARN into a developer namespace, and an application that runs MicroVMs from it without any custom resource |
 | [`ci/`](ci/) | Packaging an application artifact and uploading it to S3, as a CI step rather than a custom resource |

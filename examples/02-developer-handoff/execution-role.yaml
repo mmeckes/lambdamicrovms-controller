@@ -1,0 +1,42 @@
+# The execution role is assumed by the MicroVM itself at run time. It is not the
+# build role and not the controller's role — see the "Division of
+# responsibility" section of the repository README.
+#
+# Platform-owned: the platform team decides what a MicroVM launched from this
+# image is allowed to do. The developer receives only the ARN.
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Role
+metadata:
+  name: microvm-execution-role
+spec:
+  name: microvm-execution-role
+  description: Assumed by MicroVMs launched from quickstart-image
+
+  assumeRolePolicyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [{
+        "Effect": "Allow",
+        "Principal": { "Service": "lambda.amazonaws.com" },
+        "Action": ["sts:AssumeRole", "sts:TagSession"]
+      }]
+    }
+
+  inlinePolicies:
+    # Scope this to whatever the application inside the MicroVM actually needs.
+    # The sample application needs nothing beyond writing its own logs, so this
+    # is deliberately minimal — widen it deliberately, not by default.
+    runtime-permissions: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:log-group:/aws/lambda/microvms/*"
+          }
+        ]
+      }

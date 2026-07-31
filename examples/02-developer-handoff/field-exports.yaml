@@ -1,0 +1,72 @@
+# FieldExports are the seam between the platform layer and the developer layer.
+#
+# These live in the PLATFORM namespace, alongside the resources they read from
+# (a FieldExport can only reference a resource in its own namespace). They write
+# into the DEVELOPER namespace, which is what makes them a handoff rather than
+# just a status field.
+#
+# The result is a ConfigMap in the developer's namespace containing exactly the
+# values an application needs to call RunMicrovm — and nothing else. The
+# developer never reads a MicrovmImage, never needs RBAC on ACK resources, and
+# is not coupled to how the image was built.
+#
+# Requires the chart's `enableCrossNamespace` value, which defaults to true.
+---
+# The image ARN. This is the primary handoff artifact.
+apiVersion: services.k8s.aws/v1alpha1
+kind: FieldExport
+metadata:
+  name: microvm-image-arn
+spec:
+  from:
+    resource:
+      group: lambdamicrovms.services.k8s.aws
+      kind: MicrovmImage
+      # Created by ../01-platform-quickstart/microvmimage.yaml
+      name: quickstart-image
+    path: .status.ackResourceMetadata.arn
+  to:
+    name: microvm-runtime
+    namespace: sandbox-app
+    kind: configmap
+    key: imageARN
+---
+# The image version that is currently active. Exporting this lets the
+# application pin to a known-good version rather than implicitly following
+# whatever the latest build produced.
+apiVersion: services.k8s.aws/v1alpha1
+kind: FieldExport
+metadata:
+  name: microvm-image-version
+spec:
+  from:
+    resource:
+      group: lambdamicrovms.services.k8s.aws
+      kind: MicrovmImage
+      name: quickstart-image
+    path: .status.latestActiveImageVersion
+  to:
+    name: microvm-runtime
+    namespace: sandbox-app
+    kind: configmap
+    key: imageVersion
+---
+# The execution role the application passes to RunMicrovm. Exported from the
+# IAM Role resource so the ARN is never copied by hand.
+apiVersion: services.k8s.aws/v1alpha1
+kind: FieldExport
+metadata:
+  name: microvm-execution-role-arn
+spec:
+  from:
+    resource:
+      group: iam.services.k8s.aws
+      kind: Role
+      # Created by execution-role.yaml
+      name: microvm-execution-role
+    path: .status.ackResourceMetadata.arn
+  to:
+    name: microvm-runtime
+    namespace: sandbox-app
+    kind: configmap
+    key: executionRoleARN

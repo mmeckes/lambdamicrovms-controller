@@ -1,0 +1,69 @@
+# The developer's application. It runs in the developer's namespace, reads the
+# platform-provided ConfigMap, and calls the Lambda MicroVMs API directly.
+#
+# Note what is absent: no ACK custom resources, no RBAC on
+# lambdamicrovms.services.k8s.aws, no knowledge of how the image was built. The
+# contract is three ConfigMap keys.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox-app
+  namespace: sandbox-app
+  annotations:
+    # The application's OWN role — a fourth role, distinct from the controller,
+    # build and execution roles. It needs lambda:RunMicrovm, lambda:GetMicrovm,
+    # lambda:TerminateMicrovm, lambda:CreateMicrovmAuthToken, and iam:PassRole
+    # for the execution role it passes in.
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/sandbox-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-app
+  namespace: sandbox-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sandbox-app
+  template:
+    metadata:
+      labels:
+        app: sandbox-app
+    spec:
+      serviceAccountName: sandbox-app
+      containers:
+        - name: app
+          # Replace with your own application image. Any image with boto3 and
+          # run_session.py will do; this example does not ship one.
+          image: <your-registry>/sandbox-app:latest
+          env:
+            - name: AWS_REGION
+              value: us-east-1
+          volumeMounts:
+            # The handoff. Each FieldExport key becomes a file:
+            #   /etc/microvm-runtime/imageARN
+            #   /etc/microvm-runtime/imageVersion
+            #   /etc/microvm-runtime/executionRoleARN
+            - name: microvm-runtime
+              mountPath: /etc/microvm-runtime
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: microvm-runtime
+          configMap:
+            # Written by the FieldExports in field-exports.yaml. The ConfigMap
+            # does not exist until they reconcile.
+            name: microvm-runtime
