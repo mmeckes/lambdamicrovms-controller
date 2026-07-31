@@ -193,6 +193,9 @@ several things would get worse:
 
 See [When not to reach for a custom resource](../../README.md#when-not-to-reach-for-a-custom-resource).
 
+For the narrow case where a `Microvm` custom resource *is* the right answer, see
+[`../03-long-lived-microvm/`](../03-long-lived-microvm/).
+
 ## Cleaning up
 
 ```bash

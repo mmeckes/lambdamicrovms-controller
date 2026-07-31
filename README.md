@@ -25,6 +25,11 @@ Kubernetes Github project.
   - [Microvm](#microvm)
   - [Reaching a running MicroVM](#reaching-a-running-microvm)
 - [Examples](#examples)
+- [Troubleshooting](#troubleshooting)
+  - [Reading resource conditions](#reading-resource-conditions)
+  - [Finding build logs](#finding-build-logs)
+  - [Common failures](#common-failures)
+  - [Forcing a reconcile](#forcing-a-reconcile)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -351,7 +356,7 @@ Required: `name`, `baseImageARN`, `codeArtifact`.
 | `description` | string | Free-form description. |
 | `egressNetworkConnectors` | []string | Outbound connectors available at run time. Defaults to `[INTERNET_EGRESS]` server-side. |
 | `environmentVariables` | map[string]string | Set in the MicroVM runtime environment. Not a secret mechanism — use `runHookPayload` on `Microvm` for sensitive per-instance data. |
-| `hooks` | object | Build and lifecycle hooks: `microvmImageHooks` (`ready`, `validate`) and `microvmHooks` (`run`, `resume`, `suspend`, `terminate`), plus the `port` your application listens on. |
+| `hooks` | object | Build and lifecycle hooks: `microvmImageHooks` (`ready`, `validate`) and `microvmHooks` (`run`, `resume`, `suspend`, `terminate`), plus the `port` your application listens on. See [`examples/04-features/hooks.yaml`](examples/04-features/hooks.yaml). |
 | `logging` | object | `cloudWatch` or `disabled`. See [Logging configuration](#logging-configuration). |
 | `resources[].minimumMemoryInMiB` | []object | Baseline memory. Defaults to `2048` server-side. |
 | `tags` | map[string]string | Supported on images. |
@@ -484,14 +489,157 @@ TOKEN=$(aws lambda-microvms create-microvm-auth-token \
 curl "https://$ENDPOINT/" -H "X-aws-proxy-auth: $TOKEN"
 ```
 
-In a real application this happens in code, not in a shell. The platform team
-hands the image ARN to the application; the application mints tokens and runs
-MicroVMs on demand.
+In a real application this happens in code, not in a shell. See
+[`examples/02-developer-handoff/`](examples/02-developer-handoff/) for the full
+pattern, including how the platform team hands the image ARN to the application in
+the first place.
 
 ## Examples
 
-Runnable manifests live in [`examples/`](examples/). Start with
-[`examples/README.md`](examples/README.md) for an index.
+Runnable manifests live in [`examples/`](examples/), organised by which side of
+the [responsibility split](#division-of-responsibility) they sit on. Each
+directory has its own README with prerequisites and expected output.
+
+**Start here** depending on your role:
+
+| If you are… | Start with | Then |
+| --- | --- | --- |
+| A platform engineer building an image | [`01-platform-quickstart/`](examples/01-platform-quickstart/) | [`04-features/`](examples/04-features/), [`05-lifecycle/`](examples/05-lifecycle/) |
+| A platform engineer with several environments to manage | [`06-kro/`](examples/06-kro/) | [`05-lifecycle/`](examples/05-lifecycle/) |
+| A developer who needs to run MicroVMs | [`02-developer-handoff/`](examples/02-developer-handoff/) | [`ci/`](examples/ci/) |
+| Setting up CI | [`ci/`](examples/ci/) | [`05-lifecycle/`](examples/05-lifecycle/) |
+
+Platform-owned, declarative:
+
+| Example | Shows |
+| --- | --- |
+| [`01-platform-quickstart/`](examples/01-platform-quickstart/) | Build role and `MicrovmImage`, ending at `CREATED` with an image ARN to hand over |
+| [`02-developer-handoff/`](examples/02-developer-handoff/) | `FieldExport` publishing the image ARN into a developer namespace, and an application that runs MicroVMs without any custom resource |
+| [`03-long-lived-microvm/`](examples/03-long-lived-microvm/) | The one case where a `Microvm` custom resource is right, and why it does not generalise |
+| [`04-features/`](examples/04-features/) | Logging, lifecycle hooks, run hook payloads, resource sizing |
+| [`05-lifecycle/`](examples/05-lifecycle/) | Rebuilding to a new image version, and adopting an existing image |
+| [`06-kro/`](examples/06-kro/) | A `MicrovmEnvironment` API composing the whole platform layer with [kro](https://kro.run) |
+
+Developer and CI, imperative:
+
+| Example | Shows |
+| --- | --- |
+| [`ci/`](examples/ci/) | Packaging an artifact and uploading it to S3, as a CI step rather than a custom resource |
+
+## Troubleshooting
+
+### Reading resource conditions
+
+Every ACK resource carries conditions that say why it is in its current state.
+Start here before anything else:
+
+```bash
+kubectl describe microvmimage my-image
+kubectl get microvmimage my-image -o jsonpath='{.status.conditions}' | jq
+```
+
+| Condition | Meaning |
+| --- | --- |
+| `ACK.ResourceSynced` | The AWS resource matches the spec. For `MicrovmImage` this requires `state` in `CREATED`/`UPDATED`; for `Microvm`, `RUNNING`/`SUSPENDED`. |
+| `ACK.Terminal` | The controller will not retry. The spec must change to make progress. |
+| `ACK.Recoverable` | A transient failure; the controller will retry. |
+| `ACK.ReferencesResolved` | All `*Ref` fields resolved to real resources. |
+| `ACK.LateInitialized` | Server-side defaults have been written back into spec. |
+| `ACK.Adopted` | The resource was adopted rather than created. |
+
+Two error codes are treated as terminal for both resources:
+`ValidationException` and `InvalidParameterValueException`. Seeing either in an
+`ACK.Terminal` message means the request itself was rejected — retrying without
+changing the spec will not help.
+
+### Finding build logs
+
+The controller reports *that* a build failed. Why it failed is in the build logs,
+which the controller never sees:
+
+```bash
+aws logs tail /aws/lambda/microvms/<image-name> --follow
+```
+
+That is the default log group. If you set `logging.cloudWatch.logGroup`, look
+there instead. This is the single most useful thing to check on
+`CREATE_FAILED` — the failure is usually in your `Dockerfile`, not in Kubernetes.
+
+### Common failures
+
+**The image build fails immediately and the build role looks correct.**
+
+Check that the trust policy allows `sts:TagSession` as well as `sts:AssumeRole`.
+Lambda tags the session it creates, so `sts:AssumeRole` alone is not enough. This
+is the most common setup error:
+
+```bash
+aws iam get-role --role-name <build-role> \
+  --query 'Role.AssumeRolePolicyDocument.Statement[0].Action'
+```
+
+```json
+["sts:AssumeRole", "sts:TagSession"]
+```
+
+**`ValidationException` mentioning the image name.**
+
+`spec.name` must be unique within the AWS account and is immutable once set. Two
+`MicrovmImage` resources with the same `spec.name` — even in different namespaces
+or clusters — collide. To rename, delete and recreate; a CEL rule rejects the
+edit otherwise.
+
+**Editing a `Microvm` sets `ACK.Terminal` with `NotImplemented`.**
+
+Expected. `Microvm` has no update operation, so every spec field is immutable in
+practice. Delete the resource and create a new one. See
+[Division of responsibility](#division-of-responsibility) for why the resource is
+shaped this way.
+
+**`spec.baseImageVersion` and `status.resolvedBaseImageVersion` disagree.**
+
+Also expected, and not drift. You set the minor component; the service resolves a
+full `MINOR.PATCH`. See [Base image versions](#base-image-versions).
+
+**`AccessDenied` on create despite every `lambda:` action being allowed.**
+
+The controller's policy is probably missing the `iam:PassRole` statement. It
+needs to pass your build or execution role to Lambda. See
+[Controller IAM permissions](#controller-iam-permissions).
+
+**A `FieldExport` produces nothing.**
+
+A `FieldExport` writes nothing until its source path has a value, so an image
+still in `CREATING` yields no ARN. It also cannot read a resource in another
+namespace — it must live alongside its source. Cross-namespace *writes* require
+`enableCrossNamespace`, which defaults to `true`.
+
+**Resource references never resolve.**
+
+Check `ACK.ReferencesResolved`. A `*Ref` points at a Kubernetes resource name, not
+an AWS name, and the referenced resource must itself be synced first.
+
+### Forcing a reconcile
+
+The default resync period is ten hours
+(`reconcile.defaultResyncPeriod: 36000`). If you have changed something outside
+Kubernetes and want the controller to notice now, rather than waiting:
+
+```bash
+kubectl annotate microvmimage my-image reconcile-trigger="$(date +%s)" --overwrite
+```
+
+Any metadata change enqueues the resource. Lowering `defaultResyncPeriod`
+globally is usually the wrong instinct — if you find yourself wanting
+second-scale reconciliation, that is a signal the resource belongs on the
+[developer side](#when-not-to-reach-for-a-custom-resource) of the split rather
+than in a custom resource.
+
+To watch what the controller is doing:
+
+```bash
+kubectl logs -n ack-system deploy/ack-lambdamicrovms-controller -f
+```
 
 ## Contributing
 

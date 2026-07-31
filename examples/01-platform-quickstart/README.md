@@ -4,9 +4,10 @@ Build a MicroVM image declaratively, with the build role managed alongside it.
 
 This example is deliberately **the platform half only**. It ends when the image
 reaches `CREATED` and prints its ARN. It does not run a MicroVM, because running
-MicroVMs is the developer's job — see the
-[Division of responsibility](../../README.md#division-of-responsibility)
-section of the repository README for why the line is drawn here.
+MicroVMs is the developer's job — see
+[`../02-developer-handoff/`](../02-developer-handoff/) for the other half, and the
+[Division of responsibility](../../README.md#division-of-responsibility) section
+of the repository README for why the line is drawn here.
 
 ## What gets created
 
