@@ -124,6 +124,12 @@ graph TD
     R2 -->|passed at run time| APP
 ```
 
+One boundary inside the diagram is worth making explicit: the platform team owns
+the artifact **bucket**, but CI owns its **contents**. Publishing `app.zip` happens
+on every commit, so it is a pipeline step rather than a custom resource — see
+[`examples/ci/`](examples/ci/). The bucket is long-lived infrastructure; the object
+inside it is not.
+
 The reconciliation cadence is the concrete evidence for this split.
 [`helm/values.yaml`](helm/values.yaml) ships with:
 
