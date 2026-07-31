@@ -1,0 +1,21 @@
+# Examples
+
+Runnable manifests and scripts for the ACK Lambda MicroVMs controller.
+
+Every example is self-contained and states its prerequisites. Placeholders you
+are expected to replace are written as `<angle-bracket>` values or use the
+reserved documentation account ID `123456789012`.
+
+## Conventions
+
+- **Region.** Examples use `us-east-1`. Substitute your own region in resource
+  ARNs, including the Lambda-managed base image and network connector ARNs.
+- **Namespace.** Platform-owned resources are applied to whatever namespace you
+  choose; examples do not hardcode one except where a cross-namespace handoff is
+  the point of the example.
+- **No secrets in manifests.** Where a sample needs sensitive input, it is
+  referenced from a Kubernetes `Secret` rather than inlined.
+
+## Index
+
+Examples are added in the sections below as they are introduced.
