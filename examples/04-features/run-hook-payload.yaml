@@ -1,0 +1,64 @@
+# Per-MicroVM initialization data via runHookPayload.
+#
+# `runHookPayload` is delivered as the request body of the /run lifecycle hook
+# when the MicroVM starts. It is how you pass tenant-specific configuration —
+# session IDs, secret references, per-tenant feature flags — into an otherwise
+# identical MicroVM.
+#
+# It is a SecretKeyReference, not a plain string. You cannot inline the value.
+# That is deliberate: the payload is the natural place to put sensitive
+# per-tenant data, so the API makes the secure option the only option. Maximum
+# 16,384 bytes.
+#
+# Requires `hooks.microvmHooks.run: ENABLED` on the IMAGE — see hooks.yaml. With
+# the run hook disabled, the payload is never delivered.
+#
+# Note the boundary: this manifest is the platform-managed, long-lived case. For
+# per-session payloads, pass runHookPayload to RunMicrovm from application code.
+# See ../02-developer-handoff/.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: microvm-run-payload
+type: Opaque
+stringData:
+  # The key referenced below. Content is opaque to the service and passed
+  # through to your run hook verbatim; JSON is a convenient convention.
+  #
+  # Placeholder values only. Supply real ones out of band — do not commit
+  # secrets to git. An external secrets operator or sealed secrets is the usual
+  # answer here.
+  payload: |
+    {
+      "tenantId": "<tenant-id>",
+      "sessionId": "<session-id>",
+      "featureFlags": { "betaEditor": true },
+      "configSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:tenant-config"
+    }
+---
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: Microvm
+metadata:
+  name: microvm-with-payload
+spec:
+  imageIdentifierRef:
+    from:
+      # Must be an image with the run hook enabled.
+      name: hooks-example
+  executionRoleRef:
+    from:
+      name: microvm-execution-role
+
+  ingressNetworkConnectors:
+    - arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS
+  egressNetworkConnectors:
+    - arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:INTERNET_EGRESS
+
+  runHookPayload:
+    name: microvm-run-payload
+    key: payload
+    # Optional. Defaults to this resource's namespace. Cross-namespace secret
+    # references require the chart's `enableCrossNamespace` value, which
+    # defaults to true.
+    # namespace: platform

@@ -1,0 +1,50 @@
+# Logging configuration.
+#
+# `logging` accepts exactly one of two forms: `cloudWatch` or `disabled`. The
+# `disabled` form is an EMPTY MAP — `disabled: {}` — which is unusual enough to
+# be worth demonstrating explicitly. It is generated from an empty API shape, so
+# `disabled: true` is not valid.
+#
+# Both resources accept the same shape. On a MicrovmImage it covers build-time
+# and runtime logs; on a Microvm it covers that instance's logs.
+---
+# Stream to a named CloudWatch log group.
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: MicrovmImage
+metadata:
+  name: logging-cloudwatch
+spec:
+  name: logging-cloudwatch
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+  codeArtifact:
+    uri: s3://<your-bucket-name>/app.zip
+  buildRoleRef:
+    from:
+      name: microvm-build-role
+
+  logging:
+    cloudWatch:
+      # If you omit `logging` entirely, build logs still land in
+      # /aws/lambda/microvms/<image-name>. Set this to send them elsewhere,
+      # for example a group with a retention policy you control.
+      logGroup: /aws/lambda/microvms/logging-cloudwatch
+      # Optional. Omit to let the service choose a stream name per build.
+      logStream: builds
+---
+# Turn logging off entirely. Note the empty map.
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: MicrovmImage
+metadata:
+  name: logging-disabled
+spec:
+  name: logging-disabled
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+  codeArtifact:
+    uri: s3://<your-bucket-name>/app.zip
+  buildRoleRef:
+    from:
+      name: microvm-build-role
+
+  logging:
+    # Not `disabled: true`. An empty map.
+    disabled: {}

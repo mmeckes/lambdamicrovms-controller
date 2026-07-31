@@ -1,0 +1,59 @@
+# Resource allocation and CPU architecture.
+#
+# Two things worth knowing before you tune these:
+#
+# 1. ARM_64 is the only supported architecture, on Graviton. There is no x86
+#    option, so your Dockerfile and every dependency in it must be ARM-compatible.
+#    A multi-arch base image (like node:24-alpine) handles this transparently;
+#    an x86-only binary will fail at build time.
+#
+# 2. `minimumMemoryInMiB` is a BASELINE, not a limit. A MicroVM can vertically
+#    scale to 4x its configured baseline during peak activity. You pay the
+#    baseline rate while running, and only for actual use above it. So size the
+#    baseline for average load rather than for the worst case — over-provisioning
+#    costs money continuously, while bursting costs money only when it happens.
+#
+# Both fields are late-initialized: omit them and the service defaults are
+# written back into spec rather than showing up as perpetual drift. Defaults are
+# 2048 MiB and, for egress, [INTERNET_EGRESS].
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: MicrovmImage
+metadata:
+  name: sized-image
+spec:
+  name: sized-image
+  description: Demonstrates resource sizing and architecture selection
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+  codeArtifact:
+    uri: s3://<your-bucket-name>/app.zip
+  buildRoleRef:
+    from:
+      name: microvm-build-role
+
+  # The only legal value.
+  cpuConfigurations:
+    - architecture: ARM_64
+
+  # Baseline memory. Sized for average load; bursts scale above this.
+  resources:
+    - minimumMemoryInMiB: 4096
+
+  # Outbound network access available to MicroVMs launched from this image.
+  # Omit for the [INTERNET_EGRESS] default. Set to an empty list for no egress
+  # at all, which is a reasonable choice for sandboxes running untrusted code.
+  egressNetworkConnectors:
+    - arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:INTERNET_EGRESS
+
+  # Non-sensitive configuration baked into the image at build time. These are
+  # visible in the resource spec and identical for every MicroVM launched from
+  # the image — use runHookPayload for anything per-tenant or sensitive.
+  environmentVariables:
+    NODE_ENV: production
+    LOG_LEVEL: info
+
+  # Extra OS capabilities granted to the runtime environment. ALL is the only
+  # supported value. Omit it unless your workload genuinely needs elevated
+  # capabilities — for example mounting filesystems or installing system
+  # packages at run time.
+  # additionalOsCapabilities:
+  #   - ALL

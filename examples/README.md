@@ -32,4 +32,6 @@ Declarative, reviewed, slow-changing. These belong in git.
 | --- | --- |
 | [`02-developer-handoff/`](02-developer-handoff/) | `FieldExport` publishing the image ARN into a developer namespace, and an application that runs MicroVMs from it without any custom resource |
 | [`03-long-lived-microvm/`](03-long-lived-microvm/) | The one case where a `Microvm` custom resource is right, and why it does not generalise to per-session MicroVMs |
+| [`04-features/`](04-features/) | Single-concern samples: logging, lifecycle hooks, run hook payloads, resource sizing |
+| [`05-lifecycle/`](05-lifecycle/) | Day-two operations: rebuilding to a new image version, and adopting an existing image |
 | [`ci/`](ci/) | Packaging an application artifact and uploading it to S3, as a CI step rather than a custom resource |

@@ -1,0 +1,71 @@
+# Lifecycle hooks.
+#
+# Hooks let the service call into your application at defined points. Your app
+# serves them as HTTP endpoints on `hooks.port`; the service invokes them and
+# waits up to the matching timeout.
+#
+# Two families:
+#
+#   microvmImageHooks — during image BUILD
+#     ready    : your app tells the builder it is initialized and safe to snapshot
+#     validate : your app self-checks before the image is marked CREATED
+#
+#   microvmHooks — during instance LIFECYCLE
+#     run       : called when a MicroVM starts. Receives Microvm.spec.runHookPayload
+#                 as its request body — see run-hook-payload.yaml
+#     suspend   : called before suspension. Flush state here
+#     resume    : called after resuming. Re-establish connections, refresh clocks
+#     terminate : called before termination. Last chance to persist anything
+#
+# Every hook is ENABLED or DISABLED. Leaving one out is equivalent to DISABLED.
+#
+# `ready` is the one to reach for first: without it the builder has to guess when
+# your application has finished initializing, and a snapshot taken too early
+# gives every MicroVM a half-started process.
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: MicrovmImage
+metadata:
+  name: hooks-example
+spec:
+  name: hooks-example
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+  codeArtifact:
+    uri: s3://<your-bucket-name>/app.zip
+  buildRoleRef:
+    from:
+      name: microvm-build-role
+
+  hooks:
+    # The port your application serves hook endpoints on. Must match what your
+    # Dockerfile EXPOSEs and what your app listens on.
+    port: 8080
+
+    microvmImageHooks:
+      # Signal "initialization complete, snapshot me now".
+      ready: ENABLED
+      readyTimeoutInSeconds: 120
+      # Self-check before the image is marked CREATED. A failure here fails the
+      # build, which is preferable to shipping a broken snapshot.
+      validate: ENABLED
+      validateTimeoutInSeconds: 60
+
+    microvmHooks:
+      # Per-instance initialization. Keep it short: it is on the critical path
+      # of every MicroVM start, which is the latency the snapshot bought you.
+      run: ENABLED
+      runTimeoutInSeconds: 30
+
+      # Flush in-memory state before suspension. Memory and disk are preserved
+      # across suspend/resume, so this is for external state, not local state.
+      suspend: ENABLED
+      suspendTimeoutInSeconds: 30
+
+      # Re-establish anything that does not survive a pause: expired
+      # connections, cached credentials, a clock that has jumped forward.
+      resume: ENABLED
+      resumeTimeoutInSeconds: 30
+
+      # Last chance to persist. Not guaranteed on abrupt termination, so treat
+      # it as best-effort rather than a durability mechanism.
+      terminate: ENABLED
+      terminateTimeoutInSeconds: 30

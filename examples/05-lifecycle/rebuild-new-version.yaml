@@ -1,0 +1,52 @@
+# Rebuilding an image to produce a new version.
+#
+# Updating a MicrovmImage does not replace it — it creates a new IMAGE VERSION.
+# The image ARN stays stable, so consumers keep referring to the same resource
+# while the version behind it advances.
+#
+# The trigger is a spec change. The most common one is pointing codeArtifact.uri
+# at a freshly published artifact:
+#
+#   spec.codeArtifact.uri: s3://bucket/builds/app-<old-sha>.zip
+#                       -> s3://bucket/builds/app-<new-sha>.zip
+#
+# Watch these status fields during a rebuild:
+#
+#   state                     CREATED/UPDATED -> UPDATING -> UPDATED
+#                                                        \-> UPDATE_FAILED
+#   latestActiveImageVersion  advances only on success. This is what MicroVMs run
+#   latestFailedImageVersion  set on failure; the active version is unchanged
+#
+# A failed rebuild is therefore SAFE: latestActiveImageVersion still points at
+# the last good build and running MicroVMs are unaffected. You are not left
+# without an image.
+#
+# Updates are only accepted while state is CREATED, UPDATED, CREATE_FAILED or
+# UPDATE_FAILED. An image mid-build ignores spec changes until it settles.
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: MicrovmImage
+metadata:
+  name: versioned-image
+  annotations:
+    # Not required — just a convenient place to record which commit produced
+    # the artifact this version was built from.
+    example.com/source-commit: <git-sha>
+spec:
+  # Immutable. The image NAME never changes across rebuilds; only the version
+  # behind it does. Trying to change this is rejected by a CEL validation rule.
+  name: versioned-image
+
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+  buildRoleRef:
+    from:
+      name: microvm-build-role
+
+  # Bump this to trigger a rebuild. Using a content-addressed key (a commit SHA)
+  # rather than a fixed name like app.zip means the spec change is visible in
+  # git and reviewable, and rollback is just pointing back at the previous key.
+  codeArtifact:
+    uri: s3://<your-bucket-name>/builds/app-<git-sha>.zip
+
+  logging:
+    cloudWatch:
+      logGroup: /aws/lambda/microvms/versioned-image
