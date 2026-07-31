@@ -34,4 +34,5 @@ Declarative, reviewed, slow-changing. These belong in git.
 | [`03-long-lived-microvm/`](03-long-lived-microvm/) | The one case where a `Microvm` custom resource is right, and why it does not generalise to per-session MicroVMs |
 | [`04-features/`](04-features/) | Single-concern samples: logging, lifecycle hooks, run hook payloads, resource sizing |
 | [`05-lifecycle/`](05-lifecycle/) | Day-two operations: rebuilding to a new image version, and adopting an existing image |
+| [`06-kro/`](06-kro/) | A `MicrovmEnvironment` API composing log group, IAM roles and image into one custom resource with [kro](https://kro.run) |
 | [`ci/`](ci/) | Packaging an application artifact and uploading it to S3, as a CI step rather than a custom resource |

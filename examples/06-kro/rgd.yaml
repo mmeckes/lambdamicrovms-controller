@@ -1,0 +1,259 @@
+# MicrovmEnvironment — a platform abstraction over a MicroVM build environment.
+#
+# What this deliberately does and does not do:
+#
+#   DOES     provision the slow-changing infrastructure a MicroVM image needs —
+#            log group, build role, execution role — and build the image itself
+#
+#   DOES NOT run any MicroVM. Running MicroVMs is a request-path operation that
+#            belongs in application code. The output of this abstraction is an
+#            image ARN and an execution role ARN, published into a developer
+#            namespace for an application to use
+#
+#   DOES NOT create the artifact bucket. See the note below
+#
+# That boundary is the point. An RGD that also ran a MicroVM would collapse the
+# platform and developer layers back together and inherit every problem set out
+# in ../03-long-lived-microvm/.
+#
+# WHY THE BUCKET IS AN INPUT, NOT A RESOURCE
+#
+# It is tempting to have this RGD create the artifact bucket too. It cannot
+# usefully do so: the image build reads an object FROM that bucket, so the
+# artifact — and therefore the bucket — must already exist when the image is
+# created. An RGD that created the bucket and built the image in one pass would
+# always fail its first build, because CI has not published anything yet.
+#
+# The bucket also has a different lifecycle from an environment. Retention,
+# encryption, and access policies are usually managed once, centrally, and
+# outlive any individual environment. So it is an input.
+#
+# Deletion runs in reverse topological order: the image is deleted before the
+# build role and log group it depends on.
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: microvm-environment
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: MicrovmEnvironment
+    group: sandbox.k8s.aws
+
+    spec:
+      # Prefix for the AWS resources this instance creates, and the MicrovmImage
+      # name — which is immutable and unique per AWS account.
+      name: string | required=true
+      # Used to build the Lambda-managed network connector ARNs handed to the
+      # developer.
+      region: string | required=true
+      # Lambda-managed base image. Discover with:
+      #   aws lambda-microvms list-managed-microvm-images
+      baseImageARN: string | required=true
+
+      artifact:
+        # Existing bucket holding the packaged artifact. Must already contain
+        # the object below — publish it with ../ci/package-artifact.sh.
+        bucket: string | required=true
+        # Object key. Prefer a content-addressed key (a commit SHA) so that
+        # rebuilds are a reviewable diff — see ../05-lifecycle/.
+        key: string | default="app.zip"
+
+      # Baseline memory. MicroVMs burst to 4x this during peak activity, so size
+      # for average load rather than peak.
+      memoryMiB: integer | default=2048 minimum=2048
+      logRetentionDays: integer | default=7
+
+      # Namespace the image and execution role ARNs are published into. This is
+      # the handoff target: an application there reads the ConfigMap and calls
+      # RunMicrovm itself.
+      developerNamespace: string | required=true
+
+    status:
+      # Deliberately no `endpoint`. There is no single MicroVM to have one.
+      imageState: ${image.status.state}
+      imageARN: ${image.status.ackResourceMetadata.arn}
+      imageVersion: ${image.status.latestActiveImageVersion}
+      resolvedBaseImageVersion: ${image.status.resolvedBaseImageVersion}
+      executionRoleARN: ${executionRole.status.ackResourceMetadata.arn}
+      logGroup: ${logGroup.spec.name}
+
+    additionalPrinterColumns:
+      - name: Image-State
+        type: string
+        jsonPath: .status.imageState
+      - name: Version
+        type: string
+        jsonPath: .status.imageVersion
+      - name: Age
+        type: date
+        jsonPath: .metadata.creationTimestamp
+
+  resources:
+    # ------------------------------------------------------------------
+    # Log group for build and runtime logs.
+    #
+    # Creating it explicitly, rather than letting the service auto-create it, is
+    # the only way to control retention. Left to itself the service creates
+    # /aws/lambda/microvms/<image-name> with no expiry, and build logs
+    # accumulate indefinitely.
+    # ------------------------------------------------------------------
+    - id: logGroup
+      template:
+        apiVersion: cloudwatchlogs.services.k8s.aws/v1alpha1
+        kind: LogGroup
+        metadata:
+          name: ${schema.spec.name}-logs
+        spec:
+          name: /aws/lambda/microvms/${schema.spec.name}
+          retentionDays: ${schema.spec.logRetentionDays}
+
+    # ------------------------------------------------------------------
+    # Build role, assumed by Lambda during the image build.
+    #
+    # Note sts:TagSession alongside sts:AssumeRole — omitting it is a common and
+    # confusing failure, because the role otherwise looks correct.
+    #
+    # Referencing ${logGroup.spec.name} creates the dependency edge that makes
+    # kro create the log group first.
+    # ------------------------------------------------------------------
+    - id: buildRole
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Role
+        metadata:
+          name: ${schema.spec.name}-build
+        spec:
+          name: ${schema.spec.name}-build
+          description: Assumed by Lambda to build the ${schema.spec.name} MicroVM image
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": { "Service": "lambda.amazonaws.com" },
+                "Action": ["sts:AssumeRole", "sts:TagSession"]
+              }]
+            }
+          inlinePolicies:
+            # Scoped to the single artifact object rather than the whole bucket:
+            # the build role has no reason to read anything else.
+            build-permissions: >-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObject"],
+                    "Resource": "arn:aws:s3:::${schema.spec.artifact.bucket}/${schema.spec.artifact.key}"
+                  },
+                  {
+                    "Effect": "Allow",
+                    "Action": [
+                      "logs:CreateLogGroup",
+                      "logs:CreateLogStream",
+                      "logs:PutLogEvents"
+                    ],
+                    "Resource": "arn:aws:logs:*:*:log-group:${logGroup.spec.name}:*"
+                  }
+                ]
+              }
+
+    # ------------------------------------------------------------------
+    # Execution role, assumed by MicroVMs at run time. Its ARN is handed to the
+    # developer, who passes it to RunMicrovm.
+    #
+    # Keep this minimal: widening it widens what every MicroVM launched from
+    # this image can do.
+    # ------------------------------------------------------------------
+    - id: executionRole
+      template:
+        apiVersion: iam.services.k8s.aws/v1alpha1
+        kind: Role
+        metadata:
+          name: ${schema.spec.name}-execution
+        spec:
+          name: ${schema.spec.name}-execution
+          description: Assumed by MicroVMs launched from ${schema.spec.name}
+          assumeRolePolicyDocument: |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": { "Service": "lambda.amazonaws.com" },
+                "Action": ["sts:AssumeRole", "sts:TagSession"]
+              }]
+            }
+          inlinePolicies:
+            runtime-permissions: >-
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                    "Resource": "arn:aws:logs:*:*:log-group:${logGroup.spec.name}:*"
+                  }
+                ]
+              }
+
+    # ------------------------------------------------------------------
+    # The image.
+    #
+    # readyWhen gates everything downstream on the build actually SUCCEEDING
+    # rather than merely on the resource existing. Without it, the handoff
+    # ConfigMap would be written with an empty image version while the build is
+    # still running, and an application could read a half-built environment.
+    # ------------------------------------------------------------------
+    - id: image
+      readyWhen:
+        - ${image.status.state == "CREATED" || image.status.state == "UPDATED"}
+      template:
+        apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+        kind: MicrovmImage
+        metadata:
+          name: ${schema.spec.name}
+        spec:
+          name: ${schema.spec.name}
+          description: Built by MicrovmEnvironment/${schema.spec.name}
+          baseImageARN: ${schema.spec.baseImageARN}
+          codeArtifact:
+            uri: s3://${schema.spec.artifact.bucket}/${schema.spec.artifact.key}
+          # Referencing the role's ARN rather than using buildRoleRef gives kro
+          # the dependency edge, so the role exists before the build starts.
+          # buildRoleRef would work too, but kro would not know to order them.
+          buildRoleARN: ${buildRole.status.ackResourceMetadata.arn}
+          cpuConfigurations:
+            - architecture: ARM_64
+          resources:
+            - minimumMemoryInMiB: ${schema.spec.memoryMiB}
+          logging:
+            cloudWatch:
+              logGroup: ${logGroup.spec.name}
+          tags:
+            environment: ${schema.spec.name}
+
+    # ------------------------------------------------------------------
+    # The handoff. Publishes exactly the values an application needs into the
+    # developer's namespace, and nothing else.
+    #
+    # Depends on `image`, whose readyWhen requires a successful build, so this
+    # ConfigMap does not appear until there is a working image behind it.
+    #
+    # ../02-developer-handoff/ does the same job with FieldExports. Either works;
+    # a templated ConfigMap is simpler when kro is already orchestrating, since
+    # it has the resolved values to hand and can write them as one object.
+    # ------------------------------------------------------------------
+    - id: handoff
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: microvm-runtime
+          namespace: ${schema.spec.developerNamespace}
+        data:
+          imageARN: ${image.status.ackResourceMetadata.arn}
+          imageVersion: ${image.status.latestActiveImageVersion}
+          executionRoleARN: ${executionRole.status.ackResourceMetadata.arn}
+          ingressNetworkConnector: arn:aws:lambda:${schema.spec.region}:aws:network-connector:aws-network-connector:ALL_INGRESS
+          egressNetworkConnector: arn:aws:lambda:${schema.spec.region}:aws:network-connector:aws-network-connector:INTERNET_EGRESS

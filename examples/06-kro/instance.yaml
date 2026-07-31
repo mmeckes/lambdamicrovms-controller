@@ -1,0 +1,32 @@
+# An instance of the API defined by rgd.yaml.
+#
+# This is what a platform team commits to git per environment. Everything else —
+# log group with retention, build role with a correct trust policy and
+# least-privilege artifact access, execution role, the image build, and the
+# handoff into the developer namespace — is derived from these seven values.
+#
+# Prerequisites, in order:
+#   1. The developer namespace exists:
+#        kubectl create namespace sandbox-app
+#   2. The artifact is already published to the bucket:
+#        ../ci/package-artifact.sh --bucket <your-bucket-name> --key app.zip
+apiVersion: sandbox.k8s.aws/v1alpha1
+kind: MicrovmEnvironment
+metadata:
+  name: team-sandbox
+spec:
+  # Also the MicrovmImage name: immutable and unique per AWS account.
+  name: team-sandbox
+  region: us-east-1
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+
+  artifact:
+    # Must already exist and already contain the key below.
+    bucket: <your-bucket-name>
+    key: app.zip
+
+  memoryMiB: 2048
+  logRetentionDays: 7
+
+  # Where the imageARN / executionRoleARN ConfigMap is written.
+  developerNamespace: sandbox-app

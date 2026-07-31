@@ -1,0 +1,60 @@
+# RBAC for kro to manage the resources in this graph.
+#
+# kro's controller manages the resources an RGD templates, so it needs
+# permissions on every kind in the graph. It ships with permissions for core
+# Kubernetes types but not for arbitrary CRDs, so ACK resources must be granted
+# explicitly. Without this, the RGD is accepted and instances then fail with
+# forbidden errors on the resources kro cannot create.
+#
+# Adjust the ServiceAccount name and namespace to match your kro installation:
+#   kubectl get deploy -A -l app.kubernetes.io/name=kro \
+#     -o jsonpath='{.items[0].spec.template.spec.serviceAccountName}'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kro-microvm-environment
+rules:
+  # The resources this RGD templates.
+  - apiGroups:
+      - lambdamicrovms.services.k8s.aws
+    resources:
+      - microvmimages
+      - microvms
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups:
+      - iam.services.k8s.aws
+    resources:
+      - roles
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups:
+      - cloudwatchlogs.services.k8s.aws
+    resources:
+      - loggroups
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Status subresources, which kro reads for readyWhen and status expressions.
+  - apiGroups:
+      - lambdamicrovms.services.k8s.aws
+      - iam.services.k8s.aws
+      - cloudwatchlogs.services.k8s.aws
+    resources:
+      - "*/status"
+    verbs: ["get", "list", "watch"]
+  # The handoff ConfigMap, written into the developer namespace.
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kro-microvm-environment
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kro-microvm-environment
+subjects:
+  - kind: ServiceAccount
+    name: kro
+    namespace: kro
