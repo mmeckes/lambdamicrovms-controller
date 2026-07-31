@@ -18,4 +18,8 @@ reserved documentation account ID `123456789012`.
 
 ## Index
 
-Examples are added in the sections below as they are introduced.
+### Developer / CI
+
+| Example | What it shows |
+| --- | --- |
+| [`ci/`](ci/) | Packaging an application artifact and uploading it to S3, as a CI step rather than a custom resource |
