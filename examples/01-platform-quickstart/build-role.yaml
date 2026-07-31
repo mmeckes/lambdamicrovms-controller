@@ -1,0 +1,50 @@
+# The build role is assumed by Lambda while it builds your MicroVM image.
+# It is NOT the controller's role and NOT the execution role — see the
+# "Division of responsibility" section of the repository README.
+#
+# Managed here with the ACK IAM controller so the role lives in git alongside
+# the image that uses it. If you would rather create it out of band, do that and
+# set spec.buildRoleARN on the MicrovmImage directly.
+apiVersion: iam.services.k8s.aws/v1alpha1
+kind: Role
+metadata:
+  name: microvm-build-role
+spec:
+  name: microvm-build-role
+  description: Assumed by Lambda to build MicroVM images
+
+  # Both actions are required. Omitting sts:TagSession is a common mistake:
+  # the role looks correct and the image build fails anyway.
+  assumeRolePolicyDocument: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [{
+        "Effect": "Allow",
+        "Principal": { "Service": "lambda.amazonaws.com" },
+        "Action": ["sts:AssumeRole", "sts:TagSession"]
+      }]
+    }
+
+  inlinePolicies:
+    # Read the code artifact from S3 and write build logs to CloudWatch.
+    # Replace <your-bucket-name> with the bucket holding app.zip.
+    build-permissions: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": "arn:aws:s3:::<your-bucket-name>/*"
+          },
+          {
+            "Effect": "Allow",
+            "Action": [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:*"
+          }
+        ]
+      }

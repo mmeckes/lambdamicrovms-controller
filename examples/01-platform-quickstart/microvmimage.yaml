@@ -1,0 +1,49 @@
+# A MicrovmImage is built infrastructure: Lambda runs your Dockerfile, starts
+# your application, and snapshots the fully initialized environment. Many
+# MicroVMs are later launched from this one image.
+#
+# Replace:
+#   <your-bucket-name>  the S3 bucket holding your packaged artifact
+#   us-east-1           your region, in the base image ARN
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: MicrovmImage
+metadata:
+  name: quickstart-image
+spec:
+  # Immutable once set, and unique within the AWS account.
+  name: quickstart-image
+  description: Quickstart MicroVM image built from a Node.js HTTP server
+
+  # Lambda-managed base image, which provides the MicroVM operating system and
+  # service components. Discover available base images with:
+  #   aws lambda-microvms list-managed-microvm-images
+  baseImageARN: arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1
+
+  # The zip containing your application code and Dockerfile. Produce it with
+  # ../ci/package-artifact.sh.
+  codeArtifact:
+    uri: s3://<your-bucket-name>/app.zip
+
+  # Resolved from the Role in build-role.yaml, so no ARN is hardcoded here.
+  buildRoleRef:
+    from:
+      name: microvm-build-role
+
+  # Only ARM_64 is supported.
+  cpuConfigurations:
+    - architecture: ARM_64
+
+  # Baseline memory. Defaults to 2048 server-side if omitted; MicroVMs can
+  # vertically scale above their baseline during peak activity.
+  resources:
+    - minimumMemoryInMiB: 2048
+
+  # Build and runtime logs. Omit the whole block to accept service defaults,
+  # or use `logging: {disabled: {}}` to turn logging off.
+  logging:
+    cloudWatch:
+      logGroup: /aws/lambda/microvms/quickstart-image
+
+  tags:
+    team: platform
+    example: 01-platform-quickstart

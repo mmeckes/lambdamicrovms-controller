@@ -18,6 +18,14 @@ reserved documentation account ID `123456789012`.
 
 ## Index
 
+### Platform / infrastructure
+
+Declarative, reviewed, slow-changing. These belong in git.
+
+| Example | What it shows |
+| --- | --- |
+| [`01-platform-quickstart/`](01-platform-quickstart/) | Build role and `MicrovmImage`, ending at `CREATED` with an image ARN to hand over |
+
 ### Developer / CI
 
 | Example | What it shows |
