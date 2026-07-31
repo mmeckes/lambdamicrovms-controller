@@ -12,6 +12,10 @@ Kubernetes Github project.
 
 - [About Lambda MicroVMs](#about-lambda-microvms)
 - [What this controller manages](#what-this-controller-manages)
+- [Division of responsibility](#division-of-responsibility)
+  - [The three IAM roles](#the-three-iam-roles)
+  - [What is deliberately not a custom resource](#what-is-deliberately-not-a-custom-resource)
+  - [When not to reach for a custom resource](#when-not-to-reach-for-a-custom-resource)
 - [Installation](#installation)
   - [Controller IAM permissions](#controller-iam-permissions)
   - [Install the Helm chart](#install-the-helm-chart)
@@ -56,7 +60,143 @@ The controller reconciles two custom resources in the
 | `Microvm` | `RunMicrovm`, `GetMicrovm`, `TerminateMicrovm` | Run a single named MicroVM instance from an image |
 
 Not every Lambda MicroVMs API operation is exposed as a custom resource. That is
-deliberate, and understanding the boundary will save you time.
+deliberate, and understanding the boundary will save you time — see
+[Division of responsibility](#division-of-responsibility).
+
+## Division of responsibility
+
+This controller is designed around a split between two audiences. Getting this
+split right is the difference between a system that works and one that fights
+you.
+
+**Platform and infrastructure teams work declaratively.** The roles, buckets, log
+groups, network connectors, and MicroVM images are long-lived infrastructure.
+They belong in git, they should be reviewed, and they change on the order of days
+or weeks. This is what ACK is for.
+
+**Developers work through the API.** Running a MicroVM for a user session,
+suspending it, resuming it, minting an auth token, terminating it — these are part
+of the active application lifecycle. They happen at request speed, from
+application code, using the AWS SDK. They are not Kubernetes objects.
+
+| | Platform / infrastructure (ACK, declarative) | Developer (Lambda API, imperative) |
+| --- | --- | --- |
+| Owns | Build and execution roles, artifact bucket, log groups, network connectors, `MicrovmImage` | `RunMicrovm`, suspend, resume, terminate, auth tokens, endpoint traffic |
+| Cadence | Hours to days | Milliseconds to minutes |
+| Failure mode | Drift, corrected on the next reconcile | Request-scoped, retried by the application |
+| Representation | Custom resources in git, reviewed like any other change | SDK calls from application code |
+
+```mermaid
+graph TD
+    subgraph platform["Platform team — declarative, in git"]
+        R1[iam.Role<br/>build role]
+        R2[iam.Role<br/>execution role]
+        B[s3.Bucket<br/>artifact store]
+        L[logs.LogGroup]
+        IMG[MicrovmImage]
+        R1 --> IMG
+        B --> IMG
+        L --> IMG
+    end
+
+    IMG -->|image ARN handed over| HANDOFF[ConfigMap / FieldExport<br/>in developer namespace]
+
+    subgraph developer["Developer — imperative, from app code"]
+        APP[Application]
+        VM1[MicroVM<br/>session 1]
+        VM2[MicroVM<br/>session 2]
+        VM3[MicroVM<br/>session N]
+        APP -->|RunMicrovm| VM1
+        APP -->|RunMicrovm| VM2
+        APP -->|RunMicrovm| VM3
+    end
+
+    HANDOFF --> APP
+    R2 -->|passed at run time| APP
+```
+
+The reconciliation cadence is the concrete evidence for this split.
+[`helm/values.yaml`](helm/values.yaml) ships with:
+
+```yaml
+reconcile:
+  # The default duration, in seconds, to wait before resyncing desired state of custom resources.
+  defaultResyncPeriod: 36000 # 10 Hours
+```
+
+Ten hours. ACK is a reconciler for infrastructure that changes slowly. A
+resource whose correctness depends on being observed within seconds is in the
+wrong system.
+
+### The three IAM roles
+
+Three separate roles are involved, and conflating them is the most common source
+of confusion. Only the first belongs to the controller.
+
+| Role | Trusted by | Grants | Defined where |
+| --- | --- | --- | --- |
+| **Controller role** | EKS OIDC (IRSA) or EKS Pod Identity | `lambda:*Microvm*` calls plus `iam:PassRole` to Lambda | [`config/iam/recommended-inline-policy`](config/iam/recommended-inline-policy) |
+| **Build role** | `lambda.amazonaws.com` | Read the code artifact from S3, write build logs to CloudWatch | You create it; passed via `MicrovmImage.spec.buildRoleARN` |
+| **Execution role** | `lambda.amazonaws.com` | Whatever the application inside the MicroVM needs | You create it; passed via `Microvm.spec.executionRoleARN` |
+
+The build role's trust policy must allow both `sts:AssumeRole` and
+`sts:TagSession`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Service": "lambda.amazonaws.com" },
+    "Action": ["sts:AssumeRole", "sts:TagSession"]
+  }]
+}
+```
+
+Omitting `sts:TagSession` is a frequent and confusing failure: the role looks
+correct, and the image build fails anyway.
+
+### What is deliberately not a custom resource
+
+The Lambda MicroVMs API has more operations than this controller exposes. The
+omissions in [`generator.yaml`](generator.yaml) trace the platform/developer
+boundary rather than reflecting unfinished work.
+
+| Omitted resource | Why |
+| --- | --- |
+| `MicrovmAuthToken`, `MicrovmShellAuthToken` | Tokens are per-request credentials with a lifetime measured in minutes. Storing one in etcd and reconciling it every ten hours makes no sense; they are minted by application code when needed. |
+| `MicrovmImageVersion`, `MicrovmImageBuild` | Build artifacts produced by a declarative parent. They are observable through `MicrovmImage` status fields (`imageVersion`, `latestActiveImageVersion`, `latestFailedImageVersion`) rather than separately reconciled. |
+| `ManagedMicrovmImage`, `ManagedMicrovmImageVersion` | Read-only catalogue of Lambda-provided base images. Nothing to reconcile — discover them with `aws lambda-microvms list-managed-microvm-images`. |
+
+`Microvm` has no update operation for the same reason. `RunMicrovm` and
+`TerminateMicrovm` exist; there is no `UpdateMicrovm`. Lifecycle transitions are
+API calls, not spec edits.
+
+This is enforced rather than merely undocumented. Editing any field of a
+`Microvm` spec produces a terminal error — `sdkUpdate` returns
+`NotImplemented`, and the controller sets an `ACK.Terminal` condition on the
+resource. To change a running MicroVM's configuration, delete the resource and
+create a new one.
+
+### When not to reach for a custom resource
+
+Use the AWS SDK from your application, not a custom resource, when you are:
+
+- **Creating a MicroVM per user session, request, or job.** This is the primary
+  use case for the service and it is the wrong fit for a CRD. Each session would
+  become an etcd object reconciled on a ten-hour cycle, with creation latency
+  gated by the controller's work queue rather than by `RunMicrovm`.
+- **Suspending or resuming based on activity.** Configure `idlePolicy` on the
+  resource for automatic behaviour, or call the API directly. There is no spec
+  field to toggle.
+- **Minting auth tokens.** Always an API call, always short-lived.
+- **Managing anything with a lifetime shorter than the resync period.** If the
+  resource will be gone before the controller looks at it again, the controller
+  is not adding value.
+
+A `Microvm` custom resource is the right choice for a small number of long-lived,
+named MicroVMs that the platform team owns: a shared development box, a pinned
+demo environment, a staging instance. It is not a mechanism for fan-out.
 
 ## Installation
 
@@ -156,7 +296,7 @@ Settings worth knowing about, all in
 | `installScope` | `cluster` | Set to `namespace` and pair with `watchNamespace` to restrict the controller to specific namespaces. `watchNamespace` accepts a comma-separated list. |
 | `watchSelectors` | `""` | Comma-separated `label=value` selectors to further filter which resources are reconciled. |
 | `deletionPolicy` | `delete` | Set to `retain` to leave AWS resources intact when their custom resources are deleted. |
-| `reconcile.defaultResyncPeriod` | `36000` | Ten hours. This controller is built for slow-changing infrastructure. |
+| `reconcile.defaultResyncPeriod` | `36000` | Ten hours. See [Division of responsibility](#division-of-responsibility). |
 | `enableCrossNamespace` | `true` | Required for resource references, secret references, and field exports that cross namespace boundaries. |
 | `leaderElection.enabled` | `false` | Enable before increasing `deployment.replicas` beyond 1. |
 
