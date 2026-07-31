@@ -1,0 +1,57 @@
+# A single, named, long-lived MicroVM owned by the platform team.
+#
+# This is the narrow case where a Microvm custom resource is the right choice: a
+# shared development box that should exist continuously, be named the same way
+# every time, and be reviewed like any other piece of infrastructure.
+#
+# It is NOT a pattern for creating one MicroVM per user session. See the README
+# in this directory.
+apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
+kind: Microvm
+metadata:
+  name: shared-dev-box
+  annotations:
+    # Long-lived infrastructure benefits from surviving an accidental
+    # `kubectl delete`. With this policy the AWS MicroVM is left running when the
+    # custom resource is removed, and can be adopted back.
+    services.k8s.aws/deletion-policy: retain
+spec:
+  # Resolved from the MicrovmImage by Kubernetes name, so the ARN is not
+  # duplicated here. Created by ../01-platform-quickstart/microvmimage.yaml.
+  imageIdentifierRef:
+    from:
+      name: quickstart-image
+
+  # Resolved from the IAM Role created by
+  # ../02-developer-handoff/execution-role.yaml.
+  executionRoleRef:
+    from:
+      name: microvm-execution-role
+
+  # Inbound HTTPS on all ports, via the Lambda-managed connector.
+  ingressNetworkConnectors:
+    - arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS
+
+  # Outbound internet access, via the Lambda-managed connector.
+  egressNetworkConnectors:
+    - arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:INTERNET_EGRESS
+
+  # Suspend after 15 minutes without inbound traffic, stay suspended for up to
+  # 5 minutes, and resume automatically when a request arrives. Memory and disk
+  # state survive suspension, so a developer returning to the box finds it as
+  # they left it.
+  #
+  # Idle time is measured by inbound traffic through the MicroVM proxy endpoint.
+  idlePolicy:
+    autoResumeEnabled: true
+    maxIdleDurationSeconds: 900
+    suspendedDurationSeconds: 300
+
+  # Hard lifetime cap: 8 hours, the maximum the service allows. Even a "long
+  # lived" MicroVM is terminated by the platform eventually — there is no such
+  # thing as a permanent MicroVM, so plan for it going away.
+  maximumDurationInSeconds: 28800
+
+  logging:
+    cloudWatch:
+      logGroup: /aws/lambda/microvms/shared-dev-box
