@@ -181,7 +181,7 @@ boundary rather than reflecting unfinished work.
 | --- | --- |
 | `MicrovmAuthToken`, `MicrovmShellAuthToken` | Tokens are per-request credentials with a lifetime measured in minutes. Storing one in etcd and reconciling it every ten hours makes no sense; they are minted by application code when needed. |
 | `MicrovmImageVersion`, `MicrovmImageBuild` | Build artifacts produced by a declarative parent. They are observable through `MicrovmImage` status fields (`imageVersion`, `latestActiveImageVersion`, `latestFailedImageVersion`) rather than separately reconciled. |
-| `ManagedMicrovmImage`, `ManagedMicrovmImageVersion` | Read-only catalogue of Lambda-provided base images. Nothing to reconcile — discover them with `aws lambda-microvms list-managed-microvm-images`. |
+| `ManagedMicrovmImage`, `ManagedMicrovmImageVersion` | Read-only catalogue of Lambda-provided base images. Nothing to reconcile — discover them with the `ListManagedMicrovmImages` operation. |
 
 `Microvm` has no update operation for the same reason. `RunMicrovm` and
 `TerminateMicrovm` exist; there is no `UpdateMicrovm`. Lifecycle transitions are
@@ -370,7 +370,7 @@ Required: `name`, `baseImageARN`, `codeArtifact`.
 | Spec field | Type | Notes |
 | --- | --- | --- |
 | `name` | string | **Required. Immutable** — enforced by a CEL rule (`self == oldSelf`). Must be unique within the AWS account. Pattern `^[a-zA-Z0-9-_]+$`. |
-| `baseImageARN` | string | **Required.** Lambda-managed base image, e.g. `arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1`. Discover with `aws lambda-microvms list-managed-microvm-images`. |
+| `baseImageARN` | string | **Required.** Lambda-managed base image, e.g. `arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1`. Discover with the `ListManagedMicrovmImages` operation. |
 | `codeArtifact.uri` | string | **Required.** S3 URI of the zip containing your application and `Dockerfile`. |
 | `baseImageVersion` | string | Optional. Omit for "use latest". See [Base image versions](#base-image-versions). |
 | `buildRoleARN` | string | Role Lambda assumes to build the image. |
@@ -512,6 +512,19 @@ TOKEN=$(aws lambda-microvms create-microvm-auth-token \
 
 curl "https://$ENDPOINT/" -H "X-aws-proxy-auth: $TOKEN"
 ```
+
+> **The `aws lambda-microvms` CLI service is not available yet.** As of aws-cli
+> `2.34.28`, `aws lambda-microvms` fails with `Invalid choice`, and no MicroVMs
+> operations appear under `aws lambda`. The `aws lambda-microvms ...` commands
+> shown in this README and under `examples/` describe the operations and their
+> parameters, but you cannot run them as written today. Until the CLI ships the
+> service, call the API through an AWS SDK — the operations are live on the
+> standard Lambda endpoint (`lambda.<region>.amazonaws.com`, API version
+> `2025-09-09`). The SDK module is
+> `github.com/aws/aws-sdk-go-v2/service/lambdamicrovms` for Go and
+> `@aws-sdk/client-lambda-microvms` for JavaScript.
+> [`examples/02-developer-handoff/run_session.py`](examples/02-developer-handoff/run_session.py)
+> shows the SDK path, which is what application code should use regardless.
 
 In a real application this happens in code, not in a shell. See
 [`examples/02-developer-handoff/`](examples/02-developer-handoff/) for the full

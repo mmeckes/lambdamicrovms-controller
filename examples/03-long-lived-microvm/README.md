@@ -48,7 +48,13 @@ kubectl wait --for=condition=ACK.ResourceSynced microvm/shared-dev-box --timeout
 ```
 
 Connect to it the same way as any other MicroVM — the endpoint needs an auth
-token, which is not a custom resource:
+token, which is not a custom resource.
+
+The `aws lambda-microvms` commands below describe the operations and their
+parameters, but the CLI does not ship this service yet (verified against aws-cli
+`2.34.28`), so they cannot be run as written — call the API through an SDK
+instead. See
+[the note in the repository README](../../README.md#reaching-a-running-microvm).
 
 ```bash
 MICROVM_ID=$(kubectl get microvm shared-dev-box -o jsonpath='{.status.microvmID}')

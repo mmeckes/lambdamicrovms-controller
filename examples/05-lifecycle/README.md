@@ -91,6 +91,11 @@ Adoption brings an image that already exists in AWS under management without
 recreating it. Useful when migrating from CLI or CloudFormation-managed images,
 or reattaching after a resource was deleted under a `retain` policy.
 
+The `aws lambda-microvms` command below describes the operation and its
+parameters, but the CLI does not ship this service yet (verified against aws-cli
+`2.34.28`), so it cannot be run as written — call the API through an SDK instead.
+See [the note in the repository README](../../README.md#reaching-a-running-microvm).
+
 ```bash
 # An image created outside ACK
 aws lambda-microvms create-microvm-image \

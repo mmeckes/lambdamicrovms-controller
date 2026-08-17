@@ -47,8 +47,8 @@ spec:
       # Used to build the Lambda-managed network connector ARNs handed to the
       # developer.
       region: string | required=true
-      # Lambda-managed base image. Discover with:
-      #   aws lambda-microvms list-managed-microvm-images
+      # Lambda-managed base image. Discover with the ListManagedMicrovmImages
+      # operation — see the repository README.
       baseImageARN: string | required=true
 
       artifact:
