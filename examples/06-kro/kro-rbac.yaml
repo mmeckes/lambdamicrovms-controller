@@ -1,20 +1,51 @@
 # RBAC for kro to manage the resources in this graph.
 #
 # kro's controller manages the resources an RGD templates, so it needs
-# permissions on every kind in the graph. It ships with permissions for core
-# Kubernetes types but not for arbitrary CRDs, so ACK resources must be granted
-# explicitly. Without this, the RGD is accepted and instances then fail with
-# forbidden errors on the resources kro cannot create.
+# permissions on every kind in the graph — and on the kind the graph *defines*,
+# which it must watch to reconcile instances. It ships with permissions for core
+# Kubernetes types but not for arbitrary CRDs, so both the generated kind and the
+# ACK resources must be granted explicitly. Without the generated kind, the RGD
+# reports `ControllerReady: False` with a `cache sync timeout` message. Without
+# the ACK resources, the RGD is accepted and instances then fail with forbidden
+# errors on the resources kro cannot create.
 #
-# Adjust the ServiceAccount name and namespace to match your kro installation:
-#   kubectl get deploy -A -l app.kubernetes.io/name=kro \
-#     -o jsonpath='{.items[0].spec.template.spec.serviceAccountName}'
+# WHICH SUBJECT TO BIND depends on how kro is installed:
+#
+#   Self-managed kro (Helm or the release manifests) runs in-cluster under a
+#   ServiceAccount. The ClusterRoleBinding below targets it. Confirm the name and
+#   namespace against your installation:
+#     kubectl get deploy -A -l app.kubernetes.io/name=kro \
+#       -o jsonpath='{.items[0].spec.template.spec.serviceAccountName}'
+#
+#   The EKS Capability for kro runs off-cluster and authenticates as an IAM role
+#   through an EKS access entry, so there is no ServiceAccount to bind — the
+#   binding below applies cleanly but grants nothing. Associate an EKS access
+#   policy with the capability role instead:
+#     CAPABILITY_ROLE_ARN=$(aws eks describe-capability \
+#       --cluster-name "$CLUSTER" --capability-name "$CAPABILITY" \
+#       --query 'capability.roleArn' --output text)
+#     aws eks associate-access-policy --cluster-name "$CLUSTER" \
+#       --principal-arn "$CAPABILITY_ROLE_ARN" \
+#       --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
+#       --access-scope type=cluster
+#   AmazonEKSClusterAdminPolicy is broad and intended for development. The
+#   narrower built-in policies (AmazonEKSEditPolicy) do not cover custom
+#   resources, so production setups need a custom access policy scoped to the
+#   groups in the ClusterRole below.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: kro-microvm-environment
 rules:
+  # The kind this RGD generates. kro watches it to reconcile instances, so
+  # omitting it stalls the RGD at `ControllerReady: False`.
+  - apiGroups:
+      - sandbox.k8s.aws
+    resources:
+      - microvmenvironments
+      - microvmenvironments/status
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # The resources this RGD templates.
   - apiGroups:
       - lambdamicrovms.services.k8s.aws
@@ -46,6 +77,8 @@ rules:
       - configmaps
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
+# Self-managed kro only. The EKS Capability for kro has no in-cluster
+# ServiceAccount — see the note at the top of this file.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
