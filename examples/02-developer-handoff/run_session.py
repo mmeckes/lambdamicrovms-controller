@@ -92,7 +92,10 @@ def main() -> int:
 
         # 3. Mint an auth token. Short-lived, per-session, minted on demand —
         #    which is exactly why auth tokens are not custom resources.
-        token = lambda_microvms.create_microvm_auth_token(
+        #
+        #    `authToken` is a map of header name to value, not a bare string, so
+        #    it can be passed straight to the request as headers.
+        auth_headers = lambda_microvms.create_microvm_auth_token(
             microvmIdentifier=microvm_id,
             expirationInMinutes=30,
             allowedPorts=[{"allPorts": {}}],
@@ -102,7 +105,7 @@ def main() -> int:
         #    the X-aws-proxy-auth header.
         request = urllib.request.Request(
             f"https://{endpoint}/",
-            headers={"X-aws-proxy-auth": token},
+            headers=auth_headers,
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             print(f"==> HTTP {response.status}: {response.read().decode()}")

@@ -60,11 +60,12 @@ instead. See
 MICROVM_ID=$(kubectl get microvm shared-dev-box -o jsonpath='{.status.microvmID}')
 ENDPOINT=$(kubectl get microvm shared-dev-box -o jsonpath='{.status.endpoint}')
 
+# authToken is a map of header name to value, so pick out the header.
 TOKEN=$(aws lambda-microvms create-microvm-auth-token \
   --microvm-identifier "$MICROVM_ID" \
   --expiration-in-minutes 30 \
   --allowed-ports '[{"allPorts":{}}]' \
-  --query authToken --output text)
+  --query 'authToken."X-aws-proxy-auth"' --output text)
 
 curl "https://$ENDPOINT/" -H "X-aws-proxy-auth: $TOKEN"
 ```
