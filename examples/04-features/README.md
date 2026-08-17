@@ -33,7 +33,7 @@ logging:
 
 The empty map is generated from an empty API shape. `disabled: true` is rejected
 by the schema. If you omit `logging` altogether, build logs still go to
-`/aws/lambda/microvms/<image-name>`.
+`/aws/lambda-microvms/<image-name>`.
 
 ## Hooks
 

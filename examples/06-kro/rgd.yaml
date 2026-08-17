@@ -95,7 +95,7 @@ spec:
     #
     # Creating it explicitly, rather than letting the service auto-create it, is
     # the only way to control retention. Left to itself the service creates
-    # /aws/lambda/microvms/<image-name> with no expiry, and build logs
+    # /aws/lambda-microvms/<image-name> with no expiry, and build logs
     # accumulate indefinitely.
     # ------------------------------------------------------------------
     - id: logGroup

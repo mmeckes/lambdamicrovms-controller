@@ -25,7 +25,7 @@ spec:
   logging:
     cloudWatch:
       # If you omit `logging` entirely, build logs still land in
-      # /aws/lambda/microvms/<image-name>. Set this to send them elsewhere,
+      # /aws/lambda-microvms/<image-name>. Set this to send them elsewhere,
       # for example a group with a retention policy you control.
       logGroup: /aws/lambda/microvms/logging-cloudwatch
       # Optional. Omit to let the service choose a stream name per build.

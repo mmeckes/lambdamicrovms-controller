@@ -444,7 +444,7 @@ logging:
   disabled: {}
 ```
 
-Build logs default to `/aws/lambda/microvms/<image-name>`.
+Build logs default to `/aws/lambda-microvms/<image-name>`.
 
 ### Microvm
 
@@ -600,7 +600,7 @@ The controller reports *that* a build failed. Why it failed is in the build logs
 which the controller never sees:
 
 ```bash
-aws logs tail /aws/lambda/microvms/<image-name> --follow
+aws logs tail /aws/lambda-microvms/<image-name> --follow
 ```
 
 That is the default log group. If you set `logging.cloudWatch.logGroup`, look
@@ -631,7 +631,7 @@ aws iam get-role --role-name <build-role> \
 or clusters — collide. To rename, delete and recreate; a CEL rule rejects the
 edit otherwise.
 
-**Editing a `Microvm` sets `ACK.Terminal` with `NotImplemented`.**
+**Editing a `Microvm` sets `ACK.Terminal` with `not implemented`.**
 
 Expected. `Microvm` has no update operation, so every spec field is immutable in
 practice. Delete the resource and create a new one. See
