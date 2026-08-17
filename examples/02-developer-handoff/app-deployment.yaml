@@ -66,6 +66,7 @@ spec:
       volumes:
         - name: microvm-runtime
           configMap:
-            # Written by the FieldExports in field-exports.yaml. The ConfigMap
-            # does not exist until they reconcile.
+            # Populated by the FieldExports in field-exports.yaml. The ConfigMap
+            # itself must be created first — a FieldExport patches its target and
+            # never creates it — so the keys appear once the exports reconcile.
             name: microvm-runtime

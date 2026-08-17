@@ -666,10 +666,24 @@ shape naming that action instead. See
 
 **A `FieldExport` produces nothing.**
 
-A `FieldExport` writes nothing until its source path has a value, so an image
-still in `CREATING` yields no ARN. It also cannot read a resource in another
-namespace — it must live alongside its source. Cross-namespace *writes* require
-`enableCrossNamespace`, which defaults to `true`.
+**The target ConfigMap must already exist.** A `FieldExport` patches its target;
+it never creates it. If the ConfigMap is absent the export fails every reconcile
+with
+
+```
+unable to get existing configmap: configmaps "microvm-runtime" not found
+```
+
+so create an empty one first — `kubectl create configmap microvm-runtime -n
+<namespace>` — and let the exports fill in the keys.
+
+Beyond that, a `FieldExport` writes nothing until its source path has a value, so
+an image still in `CREATING` yields no ARN. It also cannot read a resource in
+another namespace — it must live alongside its source. Cross-namespace *writes*
+require `enableCrossNamespace`, which defaults to `true`; when the target is in
+another namespace the export additionally reports an `ACK.Advisory` condition
+warning that the behaviour will need explicit opt-in in a future release. That is
+advisory only and does not stop the write.
 
 **Resource references never resolve.**
 

@@ -58,15 +58,22 @@ and the ARN in the ConfigMap updates itself.
 ```bash
 kubectl apply -f namespace.yaml
 kubectl apply -f execution-role.yaml
-kubectl wait --for=condition=ACK.ResourceSynced role/microvm-execution-role --timeout=2m
+kubectl wait --for=condition=ACK.ResourceSynced \
+  roles.iam.services.k8s.aws/microvm-execution-role --timeout=2m
 ```
 
-**2. Apply the field exports.**
+**2. Create the target ConfigMap, then apply the field exports.**
 
-These go in the same namespace as the `MicrovmImage` and the `Role` they read
-from — a `FieldExport` can only reference a resource in its own namespace.
+The ConfigMap has to exist first. A `FieldExport` patches its target and never
+creates it, so without this step every export fails each reconcile with
+`unable to get existing configmap: configmaps "microvm-runtime" not found`.
+
+The exports themselves go in the same namespace as the `MicrovmImage` and the
+`Role` they read from — a `FieldExport` can only reference a resource in its own
+namespace.
 
 ```bash
+kubectl create configmap microvm-runtime -n sandbox-app
 kubectl apply -f field-exports.yaml
 ```
 
@@ -88,7 +95,7 @@ data:
   imageVersion: "1.0"
 ```
 
-If the ConfigMap is missing or a key is absent, check the exports:
+If a key is absent, check the exports:
 
 ```bash
 kubectl describe fieldexport microvm-image-arn
@@ -96,6 +103,10 @@ kubectl describe fieldexport microvm-image-arn
 
 A `FieldExport` produces nothing until its source path has a value, so an image
 still in `CREATING` yields no `imageARN`.
+
+Each export also carries an `ACK.Advisory` condition here, noting that the
+cross-namespace write will require explicit opt-in in a future release. It is a
+deprecation warning, not a failure — the write still happens.
 
 **4. Run a session.**
 
@@ -123,12 +134,15 @@ python3 run_session.py
 
 ```
 ==> RunMicrovm from arn:aws:lambda:us-east-1:123456789012:microvm-image:quickstart-image
-    microvmId=mvm-01234567-abcd-ef01-2345-6789abcdef01 state=PENDING
+    microvmId=microvm-01234567-89ab-cdef-0123-456789abcdef state=PENDING
     state=PENDING, waiting
-==> RUNNING at mvm-01234567-abcd-ef01-2345-6789abcdef01.lambda-microvm.us-east-1.on.aws
+==> RUNNING at 89abcdef-0123-4567-89ab-cdef01234567.lambda-microvm.us-east-1.on.aws
 ==> HTTP 200: {"status":"ok","path":"/","instanceId":"..."}
-==> TerminateMicrovm mvm-01234567-abcd-ef01-2345-6789abcdef01
+==> TerminateMicrovm microvm-01234567-89ab-cdef-0123-456789abcdef
 ```
+
+The endpoint hostname is its own identifier — it is not derived from the MicroVM
+ID, so read it from `endpoint` rather than constructing it.
 
 ## The fourth IAM role
 

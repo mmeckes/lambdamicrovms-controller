@@ -10,6 +10,11 @@
 # developer never reads a MicrovmImage, never needs RBAC on ACK resources, and
 # is not coupled to how the image was built.
 #
+# The target ConfigMap must exist before these are applied. A FieldExport patches
+# its target; it does not create it. Create an empty one:
+#
+#   kubectl create configmap microvm-runtime -n sandbox-app
+#
 # Requires the chart's `enableCrossNamespace` value, which defaults to true.
 ---
 # The image ARN. This is the primary handoff artifact.
