@@ -113,7 +113,11 @@ inside a graph, and `*Ref` fields when writing standalone manifests.
   templates the custom resources; the ACK controllers reconcile them. kro
   validates that every referenced CRD exists when the RGD is created, so a
   missing controller surfaces immediately as
-  `ResourceGraphAccepted: False`.
+  `GraphAccepted: False`, with a message naming the group version it could not
+  resolve — for example
+  `cannot resolve group version "cloudwatchlogs.services.k8s.aws/v1alpha1"`.
+  Only the CRDs need to be registered for the RGD to be accepted; the
+  controllers themselves are required before an instance can reconcile.
 - **RBAC** from [`kro-rbac.yaml`](kro-rbac.yaml).
 - **An S3 bucket with a published artifact** — see
   [`../ci/`](../ci/).
@@ -149,8 +153,8 @@ kubectl get rgd microvm-environment
 ```
 
 ```
-NAME                  APIVERSION   KIND                 STATE    AGE
-microvm-environment   v1alpha1     MicrovmEnvironment   ACTIVE   10s
+NAME                  APIVERSION   KIND                 STATE    READY   AGE
+microvm-environment   v1alpha1     MicrovmEnvironment   Active   True    10s
 ```
 
 ```bash
@@ -159,13 +163,17 @@ kubectl get rgd microvm-environment \
 ```
 
 ```
-ResourceGraphAccepted=True
+GraphAccepted=True
+GraphRevisionsResolved=True
 KindReady=True
 ControllerReady=True
+Ready=True
 ```
 
-If `ResourceGraphAccepted` is `False`, the `message` field contains the specific
-validation error. Also useful:
+If `GraphAccepted` is `False`, the `message` field contains the specific
+validation error. `ControllerReady=False` with a `cache sync timeout` message is
+a different problem — kro cannot watch the kinds in the graph, which means the
+RBAC below is missing or bound to the wrong identity. Also useful:
 
 ```bash
 kubectl get rgd microvm-environment -o jsonpath='{.status.topologicalOrder}'
@@ -247,16 +255,8 @@ running untrusted code.
 **Multiple images per environment.** Use `forEach` over a list of image
 specifications rather than duplicating the resource.
 
-## A note on verification
+## Debugging the graph
 
-The manifests here were validated structurally: every templated resource's fields
-were checked against the real CRD schemas from the `lambdamicrovms`, `iam`, and
-`cloudwatchlogs` controllers and the ACK runtime, all embedded IAM policy
-documents parse as JSON, and the kro syntax follows the 0.9.x specification for
-`schema`, `readyWhen`, CEL string templates, and printer columns.
-
-The graph has not been applied to a live cluster with kro and all three ACK
-controllers installed. If you hit a discrepancy, `kubectl get rgd
-microvm-environment -o yaml` and its `ResourceGraphAccepted` message are the
-fastest way to find it, since kro validates everything up front rather than at
-instance-creation time.
+`kubectl get rgd microvm-environment -o yaml` and its `GraphAccepted` message are
+the fastest way to find a problem, since kro validates everything up front rather
+than at instance-creation time.
