@@ -52,6 +52,15 @@ spec:
   # thing as a permanent MicroVM, so plan for it going away.
   maximumDurationInSeconds: 28800
 
+  # Runtime logs for THIS MicroVM. `logging` on the MicrovmImage covers the image
+  # build and does not reach here, so runtime logging is configured per MicroVM.
+  #
+  # Create this log group before applying — it is not auto-created, and a missing
+  # one is silent: the MicroVM runs normally and its logs go nowhere. The
+  # execution role must also allow writes to this exact prefix; the role in
+  # 02-developer-handoff is scoped to /aws/lambda/microvms/*, which matches.
+  #
+  #   aws logs create-log-group --log-group-name /aws/lambda/microvms/shared-dev-box
   logging:
     cloudWatch:
       logGroup: /aws/lambda/microvms/shared-dev-box

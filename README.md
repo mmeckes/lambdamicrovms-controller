@@ -446,6 +446,13 @@ logging:
 
 Build logs default to `/aws/lambda-microvms/<image-name>`.
 
+On a `MicrovmImage` this setting covers **build logs only**. It does not redirect
+the runtime output of MicroVMs launched from the image — set `logging` on the
+`Microvm` (or pass it to `RunMicrovm`) for that. Runtime log groups are not
+auto-created, and a missing one fails silently: the MicroVM runs and its logs are
+dropped. See
+[Logging in `examples/04-features/`](examples/04-features/README.md#logging).
+
 ### Microvm
 
 **Owner: platform team, for long-lived instances only.** For per-session MicroVMs,
@@ -686,6 +693,28 @@ require `enableCrossNamespace`, which defaults to `true`; when the target is in
 another namespace the export additionally reports an `ACK.Advisory` condition
 warning that the behaviour will need explicit opt-in in a future release. That is
 advisory only and does not stop the write.
+
+**A MicroVM runs fine but produces no logs.**
+
+Two causes, both silent — `RunMicrovm` succeeds and the MicroVM serves traffic
+either way:
+
+1. **`logging` was set on the `MicrovmImage` instead of the `Microvm`.** On an
+   image the field configures the *build*; it does not redirect runtime output.
+   Runtime logging is per MicroVM.
+2. **The runtime log group does not exist.** It is not auto-created, unlike the
+   default build group, because the execution role usually lacks
+   `logs:CreateLogGroup`. Create it up front, or grant that action.
+
+```bash
+aws logs describe-log-groups --log-group-name-prefix <runtime-log-group>
+```
+
+Also confirm the execution role's `Resource` covers the group the `Microvm`
+names. `/aws/lambda/microvms/*` and `/aws/lambda-microvms/*` differ by a single
+character, and the *default build* group uses the hyphenated form, so a policy
+copied from a build role will not match a runtime group under
+`/aws/lambda/microvms/`.
 
 **Resource references never resolve.**
 

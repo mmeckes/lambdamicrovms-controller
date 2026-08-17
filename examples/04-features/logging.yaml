@@ -5,8 +5,17 @@
 # be worth demonstrating explicitly. It is generated from an empty API shape, so
 # `disabled: true` is not valid.
 #
-# Both resources accept the same shape. On a MicrovmImage it covers build-time
-# and runtime logs; on a Microvm it covers that instance's logs.
+# Both resources accept the same shape, but they do not cover the same logs. On
+# a MicrovmImage, `logging` controls BUILD logs. It does not redirect what your
+# application prints at run time: a MicroVM launched from an image whose
+# `logging` names a group writes nothing to that group. For runtime logs, set
+# `logging` on the Microvm itself (or pass it to RunMicrovm).
+#
+# Create the runtime log group first. A missing runtime log group is not
+# auto-created and nothing reports the problem — RunMicrovm succeeds, the
+# MicroVM serves traffic, and the logs are silently dropped. Build logs differ
+# only because the build role here holds logs:CreateLogGroup and the execution
+# role does not.
 ---
 # Stream to a named CloudWatch log group.
 apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
@@ -24,9 +33,12 @@ spec:
 
   logging:
     cloudWatch:
-      # If you omit `logging` entirely, build logs still land in
-      # /aws/lambda-microvms/<image-name>. Set this to send them elsewhere,
-      # for example a group with a retention policy you control.
+      # BUILD logs only. If you omit `logging` entirely, build logs still land in
+      # /aws/lambda-microvms/<image-name>. Set this to send them elsewhere, for
+      # example a group with a retention policy you control.
+      #
+      # This does NOT affect runtime logs from MicroVMs launched from this image
+      # — see 03-long-lived-microvm/microvm.yaml for where those are configured.
       logGroup: /aws/lambda/microvms/logging-cloudwatch
       # Optional. Omit to let the service choose a stream name per build.
       logStream: builds

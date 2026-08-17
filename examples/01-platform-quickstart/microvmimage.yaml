@@ -39,8 +39,14 @@ spec:
   resources:
     - minimumMemoryInMiB: 2048
 
-  # Build and runtime logs. Omit the whole block to accept service defaults,
-  # or use `logging: {disabled: {}}` to turn logging off.
+  # Build logs. On a MicrovmImage this covers the image build only — it does not
+  # capture what MicroVMs launched from this image print at run time, which is
+  # configured per MicroVM (see ../03-long-lived-microvm/microvm.yaml).
+  #
+  # Omit the whole block to accept the service default of
+  # /aws/lambda-microvms/<image-name>, or use `logging: {disabled: {}}` to turn
+  # logging off. The build role creates this group on demand, so unlike a runtime
+  # log group it does not need to exist beforehand.
   logging:
     cloudWatch:
       logGroup: /aws/lambda/microvms/quickstart-image

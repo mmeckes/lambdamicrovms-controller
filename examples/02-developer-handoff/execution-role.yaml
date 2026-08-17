@@ -26,6 +26,17 @@ spec:
     # Scope this to whatever the application inside the MicroVM actually needs.
     # The sample application needs nothing beyond writing its own logs, so this
     # is deliberately minimal — widen it deliberately, not by default.
+    #
+    # Note the prefix: /aws/lambda/microvms/* is the convention these examples
+    # use for RUNTIME log groups, and it matches the group named in
+    # ../03-long-lived-microvm/microvm.yaml. It deliberately does not match the
+    # service's default BUILD group, /aws/lambda-microvms/<image-name> — one
+    # character apart, and the execution role has no reason to write there.
+    #
+    # There is no logs:CreateLogGroup here, so the runtime log group must already
+    # exist. That is a silent failure mode if it does not: the MicroVM starts and
+    # serves traffic while its logs go nowhere. Add logs:CreateLogGroup if you
+    # would rather the MicroVM create the group itself.
     runtime-permissions: |
       {
         "Version": "2012-10-17",

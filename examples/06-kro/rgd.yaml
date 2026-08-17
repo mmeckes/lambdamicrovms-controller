@@ -91,12 +91,20 @@ spec:
 
   resources:
     # ------------------------------------------------------------------
-    # Log group for build and runtime logs.
+    # Log group for build logs, and for runtime logs of MicroVMs the application
+    # launches from this image if they name the same group.
     #
     # Creating it explicitly, rather than letting the service auto-create it, is
     # the only way to control retention. Left to itself the service creates
     # /aws/lambda-microvms/<image-name> with no expiry, and build logs
     # accumulate indefinitely.
+    #
+    # It also matters for runtime logs specifically: a runtime log group is NOT
+    # auto-created, and a missing one is silent — the MicroVM runs and its logs
+    # are dropped. Declaring the group here means it always exists before
+    # anything writes to it. Note that `logging` on the MicrovmImage below covers
+    # the build only; runtime logging is set per MicroVM at RunMicrovm time,
+    # which is why this group's name is published in the handoff ConfigMap.
     # ------------------------------------------------------------------
     - id: logGroup
       template:
@@ -227,6 +235,7 @@ spec:
             - architecture: ARM_64
           resources:
             - minimumMemoryInMiB: ${schema.spec.memoryMiB}
+          # Build logs. Runtime logs are configured per MicroVM, not here.
           logging:
             cloudWatch:
               logGroup: ${logGroup.spec.name}

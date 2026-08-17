@@ -35,6 +35,38 @@ The empty map is generated from an empty API shape. `disabled: true` is rejected
 by the schema. If you omit `logging` altogether, build logs still go to
 `/aws/lambda-microvms/<image-name>`.
 
+### On a MicrovmImage, this configures build logs only
+
+The field has the same name and shape on both resources, which makes it look like
+one setting inherited by everything launched from the image. It is not.
+
+| Set `logging` on | Controls |
+| --- | --- |
+| `MicrovmImage` | Build logs — the image build's output |
+| `Microvm` (or `RunMicrovm`) | That instance's runtime logs — what your application prints |
+
+Point a `MicrovmImage` at a log group, launch a MicroVM from it, and the
+application's output does not appear there. Runtime logging is configured per
+MicroVM.
+
+**Create the runtime log group before you need it.** Unlike the default build
+group, a runtime log group is not created for you, and nothing surfaces the
+failure: `RunMicrovm` succeeds, the MicroVM serves traffic normally, and the logs
+are dropped. The asymmetry is an IAM one — the build role in these examples holds
+`logs:CreateLogGroup` while the execution role holds only `logs:CreateLogStream`
+and `logs:PutLogEvents`. Grant the execution role `logs:CreateLogGroup` if you
+would rather it create the group itself.
+
+Two consequences for the execution role's policy:
+
+- Scope it to the group your `Microvm` actually names. An execution role scoped
+  to `/aws/lambda/microvms/*` cannot write to a group under
+  `/aws/lambda-microvms/`, and vice versa — the two prefixes differ by one
+  character and are easy to mix up, since the *default build* group uses the
+  hyphenated form.
+- Absent `logs:CreateLogGroup`, pre-creating the group is mandatory rather than
+  merely tidy.
+
 ## Hooks
 
 Hooks are HTTP endpoints your application serves on `hooks.port`. The service
