@@ -34,10 +34,10 @@ kubectl get microvm shared-dev-box \
 ```
 
 ```
-NAME             MICROVM-ID                                    STATE
-shared-dev-box   <none>                                        <none>
-shared-dev-box   mvm-01234567-abcd-ef01-2345-6789abcdef01      PENDING
-shared-dev-box   mvm-01234567-abcd-ef01-2345-6789abcdef01      RUNNING
+NAME             MICROVM-ID                                      STATE
+shared-dev-box   <none>                                          <none>
+shared-dev-box   microvm-01234567-89ab-cdef-0123-456789abcdef     PENDING
+shared-dev-box   microvm-01234567-89ab-cdef-0123-456789abcdef     RUNNING
 ```
 
 The controller reports the resource synced once `state` is `RUNNING` or
@@ -109,7 +109,13 @@ kubectl get microvm shared-dev-box -o jsonpath='{.status.conditions}' | jq
   {
     "type": "ACK.Terminal",
     "status": "True",
-    "message": "NotImplemented"
+    "message": "not implemented"
+  },
+  {
+    "type": "ACK.ResourceSynced",
+    "status": "False",
+    "reason": "resource is in terminal condition",
+    "message": "Resource not synced"
   }
 ]
 ```
@@ -117,6 +123,11 @@ kubectl get microvm shared-dev-box -o jsonpath='{.status.conditions}' | jq
 The MicroVM keeps running with its original configuration. To change it, delete
 the resource and create a new one. Because `RunMicrovm` is a create-only
 operation, there is nothing the controller could do in place.
+
+The terminal condition is not permanent, though: revert the spec to the values
+the MicroVM was created with and the next reconcile clears `ACK.Terminal` and
+returns `ACK.ResourceSynced` to `True`. Nothing is lost by trying an edit, since
+the controller never reached AWS with it.
 
 This is worth internalising before you build automation around `Microvm` CRs: they
 are immutable, and a config change means a new MicroVM.

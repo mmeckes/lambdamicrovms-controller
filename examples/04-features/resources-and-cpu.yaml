@@ -13,9 +13,10 @@
 #    baseline for average load rather than for the worst case — over-provisioning
 #    costs money continuously, while bursting costs money only when it happens.
 #
-# Both fields are late-initialized: omit them and the service defaults are
-# written back into spec rather than showing up as perpetual drift. Defaults are
-# 2048 MiB and, for egress, [INTERNET_EGRESS].
+# `resources` and `egressNetworkConnectors` are late-initialized: omit them and
+# the service defaults are written back into spec rather than showing up as
+# perpetual drift. Defaults are 2048 MiB and, for egress, [INTERNET_EGRESS].
+# `cpuConfigurations` is not late-initialized — omit it and spec stays empty.
 apiVersion: lambdamicrovms.services.k8s.aws/v1alpha1
 kind: MicrovmImage
 metadata:
