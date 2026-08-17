@@ -117,10 +117,21 @@ Two annotations control this:
 | --- | --- | --- |
 | `services.k8s.aws/adoption-policy` | `adopt-or-create` | Adopt if it exists, create it if not |
 | | `adopt` | Adopt if it exists, otherwise fail with `AdoptedResourceNotFound` |
-| `services.k8s.aws/adoption-fields` | JSON string | Identifies the existing resource, e.g. `'{"name": "existing-image"}'` |
+| `services.k8s.aws/adoption-fields` | JSON string | Identifies the existing resource. **Must contain `arn`**, e.g. `'{"arn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:existing-image"}'` |
 
 `adoption-fields` is a JSON **string**, so it must be quoted in YAML. Requires
 the `ResourceAdoption` feature gate, which the chart enables by default.
+
+`arn` is the only accepted key for this resource. `PopulateResourceFromAnnotation`
+in [`pkg/resource/microvm_image/resource.go`](../../pkg/resource/microvm_image/resource.go)
+reads `arn` and nothing else, so identifying the image by `name` fails immediately
+with a terminal condition rather than falling back to a lookup:
+
+```
+ACK.Terminal=True   Error populating adoption fields: required field missing: arn
+```
+
+Get the ARN of the image you want to adopt from `ListMicrovmImages`.
 
 On adoption the controller reads the live resource and patches spec from it, so
 spec values in your manifest may be overwritten by what AWS reports. Reconcile

@@ -21,6 +21,11 @@
 #     A JSON object identifying the existing resource. Note it is a JSON STRING,
 #     so it must be quoted in YAML.
 #
+#     For this resource the object must contain "arn", and nothing else is
+#     accepted. PopulateResourceFromAnnotation reads only "arn", so identifying
+#     the image by "name" fails immediately with
+#       ACK.Terminal: Error populating adoption fields: required field missing: arn
+#
 # Requires the ResourceAdoption feature gate, which the chart enables by default.
 #
 # The deletion-policy: retain annotation is strongly recommended alongside
@@ -32,8 +37,9 @@ metadata:
   name: adopted-image
   annotations:
     services.k8s.aws/adoption-policy: adopt-or-create
-    # Identify the existing image by name. Quoted, because the value is JSON.
-    services.k8s.aws/adoption-fields: '{"name": "existing-image"}'
+    # Identify the existing image by ARN. Quoted, because the value is JSON.
+    # Replace the account ID and image name with the image you are adopting.
+    services.k8s.aws/adoption-fields: '{"arn": "arn:aws:lambda:us-east-1:123456789012:microvm-image:existing-image"}'
     services.k8s.aws/deletion-policy: retain
 spec:
   # Must match the existing image's name. This is the immutable primary key the
