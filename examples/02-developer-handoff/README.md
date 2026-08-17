@@ -155,25 +155,27 @@ minimal policy:
         "lambda:RunMicrovm",
         "lambda:GetMicrovm",
         "lambda:TerminateMicrovm",
-        "lambda:CreateMicrovmAuthToken"
+        "lambda:CreateMicrovmAuthToken",
+        "lambda:PassNetworkConnector"
       ],
       "Resource": "*"
     },
     {
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::123456789012:role/microvm-execution-role",
-      "Condition": {
-        "StringEquals": { "iam:PassedToService": "lambda.amazonaws.com" }
-      }
+      "Resource": "arn:aws:iam::123456789012:role/microvm-execution-role"
     }
   ]
 }
 ```
 
-Note that `iam:PassRole` here is scoped to the single execution role, unlike the
-controller's policy which uses `*` with a service condition. The application only
-ever passes one role, so it should only be able to pass that one.
+`iam:PassRole` is scoped to the single execution role, since the application only
+ever passes that one. It carries no `iam:PassedToService` condition: `RunMicrovm`
+does not populate that key, so a statement gated on it never matches and every
+`RunMicrovm` call fails with `AccessDeniedException` naming `iam:PassRole`. Scoping
+by role ARN is what constrains it. `RunMicrovm` also requires
+`lambda:PassNetworkConnector`, for the same reason `CreateMicrovmImage` does — see
+[Controller IAM permissions](../../README.md#controller-iam-permissions).
 
 ## Why this is not a custom resource
 

@@ -244,34 +244,52 @@ this repository at
         "lambda:ListMicrovms",
         "lambda:TagResource",
         "lambda:UntagResource",
-        "lambda:ListTags"
+        "lambda:ListTags",
+        "lambda:PassNetworkConnector"
       ],
       "Resource": "*"
     },
     {
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "iam:PassedToService": "lambda.amazonaws.com"
-        }
-      }
+      "Resource": [
+        "arn:aws:iam::123456789012:role/microvm-build-role",
+        "arn:aws:iam::123456789012:role/microvm-execution-role"
+      ]
     }
   ]
 }
 ```
 
 The `iam:PassRole` statement is what lets the controller hand a build role or an
-execution role to Lambda when it creates a `MicrovmImage` or a `Microvm`. The
-`iam:PassedToService` condition constrains that to Lambda, so the controller
-cannot pass roles to any other service. Without this statement, resource creation
-fails even though every `lambda:` action is permitted.
+execution role to Lambda when it creates a `MicrovmImage` or a `Microvm`. Without
+it, resource creation fails even though every `lambda:` action is permitted.
 
-Scope `Resource` down from `*` to specific image and MicroVM ARNs if your
-environment requires it. The permissions above are the minimum set of API calls
-the controller makes; narrowing the resources it may act on is independent of
-that.
+Replace the two role ARNs with the build and execution roles you actually use. The
+statement is scoped to them by ARN rather than granting `iam:PassRole` on `*`,
+because the controller only ever passes these roles.
+
+**Do not add an `iam:PassedToService` condition to this statement.** It is the
+natural way to constrain `iam:PassRole` for ordinary Lambda functions, but the
+MicroVMs operations do not populate that condition key, so a statement gated on it
+never matches and every image build fails with:
+
+```
+AccessDeniedException: User: ... is not authorized to perform: iam:PassRole
+on resource: ... because no identity-based policy allows the iam:PassRole action
+```
+
+Scoping by role ARN is what constrains the statement instead.
+
+`lambda:PassNetworkConnector` is required alongside `iam:PassRole` by
+`CreateMicrovmImage`, `UpdateMicrovmImage`, and `RunMicrovm`. The build container
+needs outbound access to pull base layers and install packages, which is granted
+through the default network connector.
+
+Scope the first statement's `Resource` down from `*` to specific image and MicroVM
+ARNs if your environment requires it. The permissions above are the minimum set of
+API calls the controller makes; narrowing the resources it may act on is
+independent of that.
 
 Associate the role with the controller's service account using [IRSA][irsa] or
 [EKS Pod Identity][pod-identity]. The chart creates a service account named
@@ -609,8 +627,25 @@ full `MINOR.PATCH`. See [Base image versions](#base-image-versions).
 
 **`AccessDenied` on create despite every `lambda:` action being allowed.**
 
-The controller's policy is probably missing the `iam:PassRole` statement. It
-needs to pass your build or execution role to Lambda. See
+The controller's policy is missing `iam:PassRole` — it needs to pass your build or
+execution role to Lambda — or the statement is there but gated on an
+`iam:PassedToService` condition, which the MicroVMs operations do not populate, so
+it never matches. The error names `iam:PassRole` in both cases:
+
+```
+AccessDeniedException: ... not authorized to perform: iam:PassRole on resource:
+arn:aws:iam::123456789012:role/microvm-build-role
+```
+
+Check which it is, then scope the statement by role ARN with no condition:
+
+```bash
+aws iam get-role-policy --role-name <controller-role> \
+  --policy-name recommended-inline-policy
+```
+
+A missing `lambda:PassNetworkConnector` produces the same `AccessDeniedException`
+shape naming that action instead. See
 [Controller IAM permissions](#controller-iam-permissions).
 
 **A `FieldExport` produces nothing.**

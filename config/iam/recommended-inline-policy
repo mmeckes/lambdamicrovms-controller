@@ -16,19 +16,18 @@
 				"lambda:ListMicrovms",
 				"lambda:TagResource",
 				"lambda:UntagResource",
-				"lambda:ListTags"
+				"lambda:ListTags",
+				"lambda:PassNetworkConnector"
 			],
 			"Resource": "*"
 		},
 		{
 			"Effect": "Allow",
 			"Action": "iam:PassRole",
-			"Resource": "*",
-			"Condition": {
-				"StringEquals": {
-					"iam:PassedToService": "lambda.amazonaws.com"
-				}
-			}
+			"Resource": [
+				"arn:aws:iam::123456789012:role/microvm-build-role",
+				"arn:aws:iam::123456789012:role/microvm-execution-role"
+			]
 		}
 	]
 }

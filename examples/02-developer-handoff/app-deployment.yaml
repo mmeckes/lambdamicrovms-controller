@@ -13,8 +13,10 @@ metadata:
   annotations:
     # The application's OWN role — a fourth role, distinct from the controller,
     # build and execution roles. It needs lambda:RunMicrovm, lambda:GetMicrovm,
-    # lambda:TerminateMicrovm, lambda:CreateMicrovmAuthToken, and iam:PassRole
-    # for the execution role it passes in.
+    # lambda:TerminateMicrovm, lambda:CreateMicrovmAuthToken,
+    # lambda:PassNetworkConnector, and iam:PassRole for the execution role it
+    # passes in. Scope iam:PassRole by role ARN, not with an
+    # iam:PassedToService condition — RunMicrovm does not set that key.
     eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/sandbox-app
 ---
 apiVersion: apps/v1
