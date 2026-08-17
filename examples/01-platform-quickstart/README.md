@@ -52,8 +52,13 @@ sed -i "s|<your-bucket-name>|$BUCKET|g; s|us-east-1|$AWS_REGION|g" \
 
 ```bash
 kubectl apply -f build-role.yaml
-kubectl wait --for=condition=ACK.ResourceSynced role/microvm-build-role --timeout=2m
+kubectl wait --for=condition=ACK.ResourceSynced \
+  roles.iam.services.k8s.aws/microvm-build-role --timeout=2m
 ```
+
+The resource type must be fully qualified. Plain `role/microvm-build-role`
+resolves to the built-in RBAC `Role` instead, and fails with
+`roles.rbac.authorization.k8s.io "microvm-build-role" not found`.
 
 **4. Apply the image.**
 
@@ -104,8 +109,10 @@ image. The resolved version appears in status:
 kubectl get microvmimage quickstart-image -o jsonpath='{.status.resolvedBaseImageVersion}'
 ```
 
-A resolved value like `0.0` alongside an empty `spec.baseImageVersion` is
-expected. See
+The value is a full `MINOR.PATCH` pair — `1.0`, for instance — where the minor
+component is whichever base image minor was latest at build time, so it changes
+as new base images ship. A resolved value in status alongside an empty
+`spec.baseImageVersion` is expected, and is not drift. See
 [Base image versions](../../README.md#base-image-versions).
 
 ## If the build fails

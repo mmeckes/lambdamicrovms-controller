@@ -216,7 +216,10 @@ demo environment, a staging instance. It is not a mechanism for fan-out.
 ## Installation
 
 The controller is distributed as a Helm chart and a container image in Amazon
-ECR Public. The current release is `0.1.1`.
+ECR Public. Released versions are listed on the
+[`lambdamicrovms-chart` gallery page](https://gallery.ecr.aws/aws-controllers-k8s/lambdamicrovms-chart);
+pick the newest rather than copying a version out of this document, which will
+fall behind.
 
 ### Controller IAM permissions
 
@@ -303,7 +306,7 @@ below.
 
 ```bash
 export SERVICE=lambdamicrovms
-export RELEASE_VERSION=0.1.1
+export RELEASE_VERSION=0.2.1   # latest at time of writing; check the gallery
 export ACK_SYSTEM_NAMESPACE=ack-system
 export AWS_REGION=us-east-1
 export ACK_CONTROLLER_ROLE_ARN=arn:aws:iam::123456789012:role/ack-lambdamicrovms-controller
