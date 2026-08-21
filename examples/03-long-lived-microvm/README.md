@@ -54,7 +54,7 @@ The `aws lambda-microvms` commands below describe the operations and their
 parameters, but the CLI does not ship this service yet (verified against aws-cli
 `2.34.28`), so they cannot be run as written — call the API through an SDK
 instead. See
-[the note in the repository README](../../README.md#reaching-a-running-microvm).
+[the note in the resource reference](../../docs/resource-reference.md#reaching-a-running-microvm).
 
 ```bash
 MICROVM_ID=$(kubectl get microvm shared-dev-box -o jsonpath='{.status.microvmID}')

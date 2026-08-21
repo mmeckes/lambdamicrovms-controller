@@ -94,7 +94,7 @@ or reattaching after a resource was deleted under a `retain` policy.
 The `aws lambda-microvms` command below describes the operation and its
 parameters, but the CLI does not ship this service yet (verified against aws-cli
 `2.34.28`), so it cannot be run as written — call the API through an SDK instead.
-See [the note in the repository README](../../README.md#reaching-a-running-microvm).
+See [the note in the resource reference](../../docs/resource-reference.md#reaching-a-running-microvm).
 
 ```bash
 # An image created outside ACK

@@ -16,20 +16,9 @@ Kubernetes Github project.
   - [The three IAM roles](#the-three-iam-roles)
   - [What is deliberately not a custom resource](#what-is-deliberately-not-a-custom-resource)
   - [When not to reach for a custom resource](#when-not-to-reach-for-a-custom-resource)
-- [Installation](#installation)
-  - [Controller IAM permissions](#controller-iam-permissions)
-  - [Install the Helm chart](#install-the-helm-chart)
-  - [Verify the installation](#verify-the-installation)
-- [Resource reference](#resource-reference)
-  - [MicrovmImage](#microvmimage)
-  - [Microvm](#microvm)
-  - [Reaching a running MicroVM](#reaching-a-running-microvm)
+- [Quick start](#quick-start)
 - [Examples](#examples)
-- [Troubleshooting](#troubleshooting)
-  - [Reading resource conditions](#reading-resource-conditions)
-  - [Finding build logs](#finding-build-logs)
-  - [Common failures](#common-failures)
-  - [Forcing a reconcile](#forcing-a-reconcile)
+- [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -74,19 +63,18 @@ deliberate, and understanding the boundary will save you time — see
 
 ## Division of responsibility
 
-This controller is designed around a split between two audiences. Getting this
-split right is the difference between a system that works and one that fights
-you.
+This controller is designed around a split between two types of operation and audience. Getting this
+split right is important to get the most out of the controller.
 
 **Platform and infrastructure teams work declaratively.** The roles, buckets, log
 groups, network connectors, and MicroVM images are long-lived infrastructure.
-They belong in git, they should be reviewed, and they change on the order of days
-or weeks. This is what ACK is for.
+They are handled in git, they should be reviewed, and they change on the order of days
+or weeks. This is what the ACK controller manages.
 
 **Developers work through the API.** Running a MicroVM for a user session,
 suspending it, resuming it, minting an auth token, terminating it — these are part
 of the active application lifecycle. They happen at request speed, from
-application code, using the AWS SDK. They are not Kubernetes objects.
+application code, using the AWS SDK. They are not expected to be managed as Kubernetes objects.
 
 | | Platform / infrastructure (ACK, declarative) | Developer (Lambda API, imperative) |
 | --- | --- | --- |
@@ -130,7 +118,7 @@ on every commit, so it is a pipeline step rather than a custom resource — see
 [`examples/ci/`](examples/ci/). The bucket is long-lived infrastructure; the object
 inside it is not.
 
-The reconciliation cadence is the concrete evidence for this split.
+The reconciliation cadence demonstrates the importance of this split.
 [`helm/values.yaml`](helm/values.yaml) ships with:
 
 ```yaml
@@ -139,9 +127,8 @@ reconcile:
   defaultResyncPeriod: 36000 # 10 Hours
 ```
 
-Ten hours. ACK is a reconciler for infrastructure that changes slowly. A
-resource whose correctness depends on being observed within seconds is in the
-wrong system.
+ACK defaults to ten hours for the reconciler, expecting infrastructure that changes slowly. A
+resource whose correctness depends on being observed within seconds is not an ideal fit.
 
 ### The three IAM roles
 
@@ -168,14 +155,13 @@ The build role's trust policy must allow both `sts:AssumeRole` and
 }
 ```
 
-Omitting `sts:TagSession` is a frequent and confusing failure: the role looks
+Omitting `sts:TagSession` is a frequent cause of failure: the role looks
 correct, and the image build fails anyway.
 
 ### What is deliberately not a custom resource
 
-The Lambda MicroVMs API has more operations than this controller exposes. The
-omissions in [`generator.yaml`](generator.yaml) trace the platform/developer
-boundary rather than reflecting unfinished work.
+The Lambda MicroVMs API has more operations than this controller exposes. The omissions follow the platform/developer
+boundary explained above.
 
 | Omitted resource | Why |
 | --- | --- |
@@ -213,100 +199,22 @@ A `Microvm` custom resource is the right choice for a small number of long-lived
 named MicroVMs that the platform team owns: a shared development box, a pinned
 demo environment, a staging instance. It is not a mechanism for fan-out.
 
-## Installation
+## Quick start
 
 The controller is distributed as a Helm chart and a container image in Amazon
 ECR Public. Released versions are listed on the
-[`lambdamicrovms-chart` gallery page](https://gallery.ecr.aws/aws-controllers-k8s/lambdamicrovms-chart);
-pick the newest rather than copying a version out of this document, which will
-fall behind.
+[`lambdamicrovms-chart` gallery page](https://gallery.ecr.aws/aws-controllers-k8s/lambdamicrovms-chart).
 
-### Controller IAM permissions
-
-The controller needs its own IAM role — distinct from the roles Lambda assumes to
-build an image or to run a MicroVM. The permissions it requires are checked into
-this repository at
-[`config/iam/recommended-inline-policy`](config/iam/recommended-inline-policy):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "lambda:CreateMicrovmImage",
-        "lambda:UpdateMicrovmImage",
-        "lambda:DeleteMicrovmImage",
-        "lambda:GetMicrovmImage",
-        "lambda:GetMicrovmImageVersion",
-        "lambda:ListMicrovmImages",
-        "lambda:RunMicrovm",
-        "lambda:GetMicrovm",
-        "lambda:TerminateMicrovm",
-        "lambda:ListMicrovms",
-        "lambda:TagResource",
-        "lambda:UntagResource",
-        "lambda:ListTags",
-        "lambda:PassNetworkConnector"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "iam:PassRole",
-      "Resource": [
-        "arn:aws:iam::123456789012:role/microvm-build-role",
-        "arn:aws:iam::123456789012:role/microvm-execution-role"
-      ]
-    }
-  ]
-}
-```
-
-The `iam:PassRole` statement is what lets the controller hand a build role or an
-execution role to Lambda when it creates a `MicrovmImage` or a `Microvm`. Without
-it, resource creation fails even though every `lambda:` action is permitted.
-
-Replace the two role ARNs with the build and execution roles you actually use. The
-statement is scoped to them by ARN rather than granting `iam:PassRole` on `*`,
-because the controller only ever passes these roles.
-
-**Do not add an `iam:PassedToService` condition to this statement.** It is the
-natural way to constrain `iam:PassRole` for ordinary Lambda functions, but the
-MicroVMs operations do not populate that condition key, so a statement gated on it
-never matches and every image build fails with:
-
-```
-AccessDeniedException: User: ... is not authorized to perform: iam:PassRole
-on resource: ... because no identity-based policy allows the iam:PassRole action
-```
-
-Scoping by role ARN is what constrains the statement instead.
-
-`lambda:PassNetworkConnector` is required alongside `iam:PassRole` by
-`CreateMicrovmImage`, `UpdateMicrovmImage`, and `RunMicrovm`. The build container
-needs outbound access to pull base layers and install packages, which is granted
-through the default network connector.
-
-Scope the first statement's `Resource` down from `*` to specific image and MicroVM
-ARNs if your environment requires it. The permissions above are the minimum set of
-API calls the controller makes; narrowing the resources it may act on is
-independent of that.
-
-Associate the role with the controller's service account using [IRSA][irsa] or
-[EKS Pod Identity][pod-identity]. The chart creates a service account named
-`ack-lambdamicrovms-controller`; for IRSA, annotate it with the role ARN as shown
-below.
-
-[irsa]: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html
-[pod-identity]: https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html
-
-### Install the Helm chart
+It needs an IAM role of its own, distinct from the build and execution roles
+Lambda assumes. The permissions are checked into
+[`config/iam/recommended-inline-policy`](config/iam/recommended-inline-policy);
+[Installation](docs/installation.md) explains them, including the two that are
+easy to miss — `iam:PassRole` scoped by role ARN with no
+`iam:PassedToService` condition, and `lambda:PassNetworkConnector`.
 
 ```bash
 export SERVICE=lambdamicrovms
-export RELEASE_VERSION=0.2.1   # latest at time of writing; check the gallery
+export RELEASE_VERSION=0.2.1   # check the gallery for the current release
 export ACK_SYSTEM_NAMESPACE=ack-system
 export AWS_REGION=us-east-1
 export ACK_CONTROLLER_ROLE_ARN=arn:aws:iam::123456789012:role/ack-lambdamicrovms-controller
@@ -318,30 +226,6 @@ helm install \
   ack-"$SERVICE"-controller \
   "oci://public.ecr.aws/aws-controllers-k8s/$SERVICE-chart" --version="$RELEASE_VERSION"
 ```
-
-If you use EKS Pod Identity instead of IRSA, omit the `serviceAccount.annotations`
-flag and create a pod identity association for the
-`ack-lambdamicrovms-controller` service account in the release namespace.
-
-Settings worth knowing about, all in
-[`helm/values.yaml`](helm/values.yaml):
-
-| Value | Default | Notes |
-| --- | --- | --- |
-| `aws.region` | `""` | Region for AWS API calls. Set this. |
-| `installScope` | `cluster` | Set to `namespace` and pair with `watchNamespace` to restrict the controller to specific namespaces. `watchNamespace` accepts a comma-separated list. |
-| `watchSelectors` | `""` | Comma-separated `label=value` selectors to further filter which resources are reconciled. |
-| `deletionPolicy` | `delete` | Set to `retain` to leave AWS resources intact when their custom resources are deleted. |
-| `reconcile.defaultResyncPeriod` | `36000` | Ten hours. See [Division of responsibility](#division-of-responsibility). |
-| `enableCrossNamespace` | `true` | Required for resource references, secret references, and field exports that cross namespace boundaries. |
-| `leaderElection.enabled` | `false` | Enable before increasing `deployment.replicas` beyond 1. |
-
-**Region availability.** Lambda MicroVMs is not available in every AWS Region.
-This repository does not encode a region list, so check the
-[Lambda MicroVMs documentation][microvms-guide] for current availability rather
-than assuming a region works.
-
-### Verify the installation
 
 ```bash
 kubectl get pods -n ack-system
@@ -356,192 +240,15 @@ microvmimages.lambdamicrovms.services.k8s.aws
 microvms.lambdamicrovms.services.k8s.aws
 ```
 
-## Resource reference
+**Region availability.** Lambda MicroVMs is not available in every AWS Region.
+This repository does not encode a region list, so check the
+[Lambda MicroVMs documentation][microvms-guide] for current availability rather
+than assuming a region works.
 
-Both resources are in the `lambdamicrovms.services.k8s.aws/v1alpha1` API group.
-The authoritative schemas are the generated types in
-[`apis/v1alpha1`](apis/v1alpha1) and the CRD manifests in
-[`config/crd/bases`](config/crd/bases).
-
-### MicrovmImage
-
-**Owner: platform team.** An image is built infrastructure — versioned, reviewed,
-and shared by many MicroVMs.
-
-Required: `name`, `baseImageARN`, `codeArtifact`.
-
-| Spec field | Type | Notes |
-| --- | --- | --- |
-| `name` | string | **Required. Immutable** — enforced by a CEL rule (`self == oldSelf`). Must be unique within the AWS account. Pattern `^[a-zA-Z0-9-_]+$`. |
-| `baseImageARN` | string | **Required.** Lambda-managed base image, e.g. `arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1`. Discover with the `ListManagedMicrovmImages` operation. |
-| `codeArtifact.uri` | string | **Required.** S3 URI of the zip containing your application and `Dockerfile`. |
-| `baseImageVersion` | string | Optional. Omit for "use latest". See [Base image versions](#base-image-versions). |
-| `buildRoleARN` | string | Role Lambda assumes to build the image. |
-| `buildRoleRef` | reference | Alternative to `buildRoleARN`: reference an `iam.services.k8s.aws` `Role` by Kubernetes name. |
-| `additionalOsCapabilities` | []string | Extra OS capabilities. Only supported value is `ALL`. |
-| `cpuConfigurations[].architecture` | []object | Only supported value is `ARM_64`. |
-| `description` | string | Free-form description. |
-| `egressNetworkConnectors` | []string | Outbound connectors available at run time. Defaults to `[INTERNET_EGRESS]` server-side. |
-| `environmentVariables` | map[string]string | Set in the MicroVM runtime environment. Not a secret mechanism — use `runHookPayload` on `Microvm` for sensitive per-instance data. |
-| `hooks` | object | Build and lifecycle hooks: `microvmImageHooks` (`ready`, `validate`) and `microvmHooks` (`run`, `resume`, `suspend`, `terminate`), plus the `port` your application listens on. See [`examples/04-features/hooks.yaml`](examples/04-features/hooks.yaml). |
-| `logging` | object | `cloudWatch` or `disabled`. See [Logging configuration](#logging-configuration). |
-| `resources[].minimumMemoryInMiB` | []object | Baseline memory. Defaults to `2048` server-side. |
-| `tags` | map[string]string | Supported on images. |
-
-| Status field | Notes |
-| --- | --- |
-| `state` | `CREATING`, `CREATED`, `CREATE_FAILED`, `UPDATING`, `UPDATED`, `UPDATE_FAILED`, `DELETING`, `DELETED`, `DELETE_FAILED` |
-| `imageVersion` | Version of the image. |
-| `latestActiveImageVersion` | Most recent version that built successfully. This is what MicroVMs run. |
-| `latestFailedImageVersion` | Most recent version that failed to build, if any. |
-| `resolvedBaseImageVersion` | Read-only, fully resolved `MINOR.PATCH` base image version. |
-| `createdAt`, `updatedAt` | Timestamps. |
-| `ackResourceMetadata.arn` | The image ARN. This is the resource's primary key. |
-
-The controller gates on `state`:
-
-| Behaviour | States |
-| --- | --- |
-| Considered synced | `CREATED`, `UPDATED` |
-| Accepts updates | `CREATED`, `UPDATED`, `CREATE_FAILED`, `UPDATE_FAILED` |
-| Accepts deletion | `CREATED`, `UPDATED`, `CREATE_FAILED`, `UPDATE_FAILED`, `DELETE_FAILED` |
-
-A `MicrovmImage` sitting in `CREATING` is not stuck; builds take minutes. Watch
-`state`, and on `CREATE_FAILED` read the build logs.
-
-#### Base image versions
-
-`baseImageVersion` is the one field whose spec and status will legitimately
-disagree, and it is worth understanding before it surprises you.
-
-You set only the **minor** component, for example `"0"`. The builder owns the
-patch component. The service resolves your input to a full `MINOR.PATCH` value
-such as `"0.0"`, which is surfaced read-only as
-`status.resolvedBaseImageVersion`.
-
-The controller deliberately does not write the resolved value back into spec. If
-it did, the next update would send `"0.0"` as the requested version, the request
-validator would reject it, and the resource would be wedged. This is implemented
-by dropping `BaseImageVersion` from the create and update output shapes in
-[`generator.yaml`](generator.yaml).
-
-So: `spec.baseImageVersion: "0"` alongside
-`status.resolvedBaseImageVersion: "0.0"` is correct and stable, not drift.
-
-#### Logging configuration
-
-`logging` accepts exactly one of two forms. The `disabled` variant is an empty
-object, which is unusual enough to trip people up:
-
-```yaml
-# Stream to a specific log group
-logging:
-  cloudWatch:
-    logGroup: /aws/lambda/microvms/my-image
-
-# Or turn logging off entirely — note the empty map
-logging:
-  disabled: {}
-```
-
-Build logs default to `/aws/lambda-microvms/<image-name>`.
-
-On a `MicrovmImage` this setting covers **build logs only**. It does not redirect
-the runtime output of MicroVMs launched from the image — set `logging` on the
-`Microvm` (or pass it to `RunMicrovm`) for that. Runtime log groups are not
-auto-created, and a missing one fails silently: the MicroVM runs and its logs are
-dropped. See
-[Logging in `examples/04-features/`](examples/04-features/README.md#logging).
-
-### Microvm
-
-**Owner: platform team, for long-lived instances only.** For per-session MicroVMs,
-call `RunMicrovm` from application code instead — see
-[Division of responsibility](#division-of-responsibility).
-
-No fields are required at the CRD level, because `imageIdentifier` may be
-satisfied either directly or through `imageIdentifierRef`. In practice you must
-supply one of the two.
-
-| Spec field | Type | Notes |
-| --- | --- | --- |
-| `imageIdentifier` | string | Image ARN or ID to run. Supply this or `imageIdentifierRef`. |
-| `imageIdentifierRef` | reference | Reference a `MicrovmImage` by Kubernetes name; the controller resolves its ARN. |
-| `imageVersion` | string | Pin a specific image version. Omit to use the latest active version. |
-| `executionRoleARN` | string | Role assumed by the MicroVM at run time. |
-| `executionRoleRef` | reference | Reference an `iam.services.k8s.aws` `Role` by Kubernetes name. |
-| `ingressNetworkConnectors` | []string | Inbound. Lambda-managed: `arn:aws:lambda:<region>:aws:network-connector:aws-network-connector:ALL_INGRESS`. |
-| `egressNetworkConnectors` | []string | Outbound. Lambda-managed: `...:INTERNET_EGRESS`. |
-| `idlePolicy` | object | `autoResumeEnabled`, `maxIdleDurationSeconds`, `suspendedDurationSeconds`. Idle time is measured by inbound traffic through the MicroVM proxy endpoint. |
-| `logging` | object | Same shape as on `MicrovmImage`. |
-| `maximumDurationInSeconds` | int64 | Hard lifetime cap before the platform terminates the MicroVM. Valid range 1–28800 (8 hours). |
-| `runHookPayload` | secret reference | Per-MicroVM init data delivered as the body of the `/run` lifecycle hook. A `SecretKeyReference`, not a literal — maximum 16,384 bytes. |
-
-| Status field | Notes |
-| --- | --- |
-| `microvmID` | The MicroVM ID. Primary key, read-only, shown as the `MICROVM-ID` printer column. |
-| `endpoint` | HTTPS endpoint. Requires an auth token — see [Reaching a running MicroVM](#reaching-a-running-microvm). |
-| `imageARN` | ARN of the image this MicroVM was launched from. |
-| `state` | `PENDING`, `RUNNING`, `SUSPENDING`, `SUSPENDED`, `TERMINATING`, `TERMINATED` |
-| `stateReason` | Why the MicroVM is in its current state. |
-| `startedAt`, `terminatedAt` | Timestamps. |
-
-| Behaviour | States |
-| --- | --- |
-| Considered synced | `RUNNING`, `SUSPENDED` |
-| Accepts deletion | `RUNNING`, `SUSPENDED` |
-
-Two constraints that follow from the resource having no update operation:
-
-- **Editing the spec produces a terminal error.** Every spec field is compared
-  during reconciliation, and the update path returns `NotImplemented`, so the
-  controller sets an `ACK.Terminal` condition. Delete and recreate to change
-  configuration.
-- **Tags are not supported.** `tags` is ignored for `Microvm`, unlike
-  `MicrovmImage`. The chart's `resourceTags` values still apply to images.
-
-Suspend and resume are not spec fields. Configure `idlePolicy` for automatic
-behaviour, or call `suspend-microvm` and `resume-microvm` directly.
-
-### Reaching a running MicroVM
-
-`status.endpoint` gives you a URL, but every request to it requires an
-authentication token — and **auth tokens are intentionally not custom
-resources**. They are per-request credentials with a lifetime measured in
-minutes, so they are minted through the API when needed.
-
-```bash
-MICROVM_ID=$(kubectl get microvm my-microvm -o jsonpath='{.status.microvmID}')
-ENDPOINT=$(kubectl get microvm my-microvm -o jsonpath='{.status.endpoint}')
-
-# authToken is a map of header name to value, not a bare string, so select the
-# header you need out of it.
-TOKEN=$(aws lambda-microvms create-microvm-auth-token \
-  --microvm-identifier "$MICROVM_ID" \
-  --expiration-in-minutes 30 \
-  --allowed-ports '[{"allPorts":{}}]' \
-  --query 'authToken."X-aws-proxy-auth"' --output text)
-
-curl "https://$ENDPOINT/" -H "X-aws-proxy-auth: $TOKEN"
-```
-
-> **The `aws lambda-microvms` CLI service is not available yet.** As of aws-cli
-> `2.34.28`, `aws lambda-microvms` fails with `Invalid choice`, and no MicroVMs
-> operations appear under `aws lambda`. The `aws lambda-microvms ...` commands
-> shown in this README and under `examples/` describe the operations and their
-> parameters, but you cannot run them as written today. Until the CLI ships the
-> service, call the API through an AWS SDK — the operations are live on the
-> standard Lambda endpoint (`lambda.<region>.amazonaws.com`, API version
-> `2025-09-09`). The SDK module is
-> `github.com/aws/aws-sdk-go-v2/service/lambdamicrovms` for Go and
-> `@aws-sdk/client-lambda-microvms` for JavaScript.
-> [`examples/02-developer-handoff/run_session.py`](examples/02-developer-handoff/run_session.py)
-> shows the SDK path, which is what application code should use regardless.
-
-In a real application this happens in code, not in a shell. See
-[`examples/02-developer-handoff/`](examples/02-developer-handoff/) for the full
-pattern, including how the platform team hands the image ARN to the application in
-the first place.
+From here, [`examples/01-platform-quickstart/`](examples/01-platform-quickstart/)
+builds a first image and ends with an ARN to hand to a developer. For EKS Pod
+Identity, chart values, and the full IAM policy, see
+[Installation](docs/installation.md).
 
 ## Examples
 
@@ -558,190 +265,16 @@ directory has its own README with prerequisites and expected output.
 | A developer who needs to run MicroVMs | [`02-developer-handoff/`](examples/02-developer-handoff/) | [`ci/`](examples/ci/) |
 | Setting up CI | [`ci/`](examples/ci/) | [`05-lifecycle/`](examples/05-lifecycle/) |
 
-Platform-owned, declarative:
+[`examples/README.md`](examples/README.md) indexes all of them with shared
+conventions.
 
-| Example | Shows |
+## Documentation
+
+| Document | Covers |
 | --- | --- |
-| [`01-platform-quickstart/`](examples/01-platform-quickstart/) | Build role and `MicrovmImage`, ending at `CREATED` with an image ARN to hand over |
-| [`02-developer-handoff/`](examples/02-developer-handoff/) | `FieldExport` publishing the image ARN into a developer namespace, and an application that runs MicroVMs without any custom resource |
-| [`03-long-lived-microvm/`](examples/03-long-lived-microvm/) | The one case where a `Microvm` custom resource is right, and why it does not generalise |
-| [`04-features/`](examples/04-features/) | Logging, lifecycle hooks, run hook payloads, resource sizing |
-| [`05-lifecycle/`](examples/05-lifecycle/) | Rebuilding to a new image version, and adopting an existing image |
-| [`06-kro/`](examples/06-kro/) | A `MicrovmEnvironment` API composing the whole platform layer with [kro](https://kro.run) |
-
-Developer and CI, imperative:
-
-| Example | Shows |
-| --- | --- |
-| [`ci/`](examples/ci/) | Packaging an artifact and uploading it to S3, as a CI step rather than a custom resource |
-
-## Troubleshooting
-
-### Reading resource conditions
-
-Every ACK resource carries conditions that say why it is in its current state.
-Start here before anything else:
-
-```bash
-kubectl describe microvmimage my-image
-kubectl get microvmimage my-image -o jsonpath='{.status.conditions}' | jq
-```
-
-| Condition | Meaning |
-| --- | --- |
-| `ACK.ResourceSynced` | The AWS resource matches the spec. For `MicrovmImage` this requires `state` in `CREATED`/`UPDATED`; for `Microvm`, `RUNNING`/`SUSPENDED`. |
-| `ACK.Terminal` | The controller will not retry. The spec must change to make progress. |
-| `ACK.Recoverable` | A transient failure; the controller will retry. |
-| `ACK.ReferencesResolved` | All `*Ref` fields resolved to real resources. |
-| `ACK.LateInitialized` | Server-side defaults have been written back into spec. |
-| `ACK.Adopted` | The resource was adopted rather than created. |
-
-Two error codes are treated as terminal for both resources:
-`ValidationException` and `InvalidParameterValueException`. Seeing either in an
-`ACK.Terminal` message means the request itself was rejected — retrying without
-changing the spec will not help.
-
-### Finding build logs
-
-The controller reports *that* a build failed. Why it failed is in the build logs,
-which the controller never sees:
-
-```bash
-aws logs tail /aws/lambda-microvms/<image-name> --follow
-```
-
-That is the default log group. If you set `logging.cloudWatch.logGroup`, look
-there instead. This is the single most useful thing to check on
-`CREATE_FAILED` — the failure is usually in your `Dockerfile`, not in Kubernetes.
-
-### Common failures
-
-**The image build fails immediately and the build role looks correct.**
-
-Check that the trust policy allows `sts:TagSession` as well as `sts:AssumeRole`.
-Lambda tags the session it creates, so `sts:AssumeRole` alone is not enough. This
-is the most common setup error:
-
-```bash
-aws iam get-role --role-name <build-role> \
-  --query 'Role.AssumeRolePolicyDocument.Statement[0].Action'
-```
-
-```json
-["sts:AssumeRole", "sts:TagSession"]
-```
-
-**`ValidationException` mentioning the image name.**
-
-`spec.name` must be unique within the AWS account and is immutable once set. Two
-`MicrovmImage` resources with the same `spec.name` — even in different namespaces
-or clusters — collide. To rename, delete and recreate; a CEL rule rejects the
-edit otherwise.
-
-**Editing a `Microvm` sets `ACK.Terminal` with `not implemented`.**
-
-Expected. `Microvm` has no update operation, so every spec field is immutable in
-practice. Delete the resource and create a new one. See
-[Division of responsibility](#division-of-responsibility) for why the resource is
-shaped this way.
-
-**`spec.baseImageVersion` and `status.resolvedBaseImageVersion` disagree.**
-
-Also expected, and not drift. You set the minor component; the service resolves a
-full `MINOR.PATCH`. See [Base image versions](#base-image-versions).
-
-**`AccessDenied` on create despite every `lambda:` action being allowed.**
-
-The controller's policy is missing `iam:PassRole` — it needs to pass your build or
-execution role to Lambda — or the statement is there but gated on an
-`iam:PassedToService` condition, which the MicroVMs operations do not populate, so
-it never matches. The error names `iam:PassRole` in both cases:
-
-```
-AccessDeniedException: ... not authorized to perform: iam:PassRole on resource:
-arn:aws:iam::123456789012:role/microvm-build-role
-```
-
-Check which it is, then scope the statement by role ARN with no condition:
-
-```bash
-aws iam get-role-policy --role-name <controller-role> \
-  --policy-name recommended-inline-policy
-```
-
-A missing `lambda:PassNetworkConnector` produces the same `AccessDeniedException`
-shape naming that action instead. See
-[Controller IAM permissions](#controller-iam-permissions).
-
-**A `FieldExport` produces nothing.**
-
-**The target ConfigMap must already exist.** A `FieldExport` patches its target;
-it never creates it. If the ConfigMap is absent the export fails every reconcile
-with
-
-```
-unable to get existing configmap: configmaps "microvm-runtime" not found
-```
-
-so create an empty one first — `kubectl create configmap microvm-runtime -n
-<namespace>` — and let the exports fill in the keys.
-
-Beyond that, a `FieldExport` writes nothing until its source path has a value, so
-an image still in `CREATING` yields no ARN. It also cannot read a resource in
-another namespace — it must live alongside its source. Cross-namespace *writes*
-require `enableCrossNamespace`, which defaults to `true`; when the target is in
-another namespace the export additionally reports an `ACK.Advisory` condition
-warning that the behaviour will need explicit opt-in in a future release. That is
-advisory only and does not stop the write.
-
-**A MicroVM runs fine but produces no logs.**
-
-Two causes, both silent — `RunMicrovm` succeeds and the MicroVM serves traffic
-either way:
-
-1. **`logging` was set on the `MicrovmImage` instead of the `Microvm`.** On an
-   image the field configures the *build*; it does not redirect runtime output.
-   Runtime logging is per MicroVM.
-2. **The runtime log group does not exist.** It is not auto-created, unlike the
-   default build group, because the execution role usually lacks
-   `logs:CreateLogGroup`. Create it up front, or grant that action.
-
-```bash
-aws logs describe-log-groups --log-group-name-prefix <runtime-log-group>
-```
-
-Also confirm the execution role's `Resource` covers the group the `Microvm`
-names. `/aws/lambda/microvms/*` and `/aws/lambda-microvms/*` differ by a single
-character, and the *default build* group uses the hyphenated form, so a policy
-copied from a build role will not match a runtime group under
-`/aws/lambda/microvms/`.
-
-**Resource references never resolve.**
-
-Check `ACK.ReferencesResolved`. A `*Ref` points at a Kubernetes resource name, not
-an AWS name, and the referenced resource must itself be synced first.
-
-### Forcing a reconcile
-
-The default resync period is ten hours
-(`reconcile.defaultResyncPeriod: 36000`). If you have changed something outside
-Kubernetes and want the controller to notice now, rather than waiting:
-
-```bash
-kubectl annotate microvmimage my-image reconcile-trigger="$(date +%s)" --overwrite
-```
-
-Any metadata change enqueues the resource. Lowering `defaultResyncPeriod`
-globally is usually the wrong instinct — if you find yourself wanting
-second-scale reconciliation, that is a signal the resource belongs on the
-[developer side](#when-not-to-reach-for-a-custom-resource) of the split rather
-than in a custom resource.
-
-To watch what the controller is doing:
-
-```bash
-kubectl logs -n ack-system deploy/ack-lambdamicrovms-controller -f
-```
+| [Installation](docs/installation.md) | Controller IAM permissions, Helm chart values, verifying the install |
+| [Resource reference](docs/resource-reference.md) | Every `MicrovmImage` and `Microvm` field, base image versions, logging, reaching a running MicroVM |
+| [Troubleshooting](docs/troubleshooting.md) | Reading conditions, finding build logs, common failures, forcing a reconcile |
 
 ## Contributing
 

@@ -48,7 +48,7 @@ spec:
       # developer.
       region: string | required=true
       # Lambda-managed base image. Discover with the ListManagedMicrovmImages
-      # operation — see the repository README.
+      # operation — see docs/resource-reference.md.
       baseImageARN: string | required=true
 
       artifact:

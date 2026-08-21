@@ -189,7 +189,7 @@ does not populate that key, so a statement gated on it never matches and every
 `RunMicrovm` call fails with `AccessDeniedException` naming `iam:PassRole`. Scoping
 by role ARN is what constrains it. `RunMicrovm` also requires
 `lambda:PassNetworkConnector`, for the same reason `CreateMicrovmImage` does — see
-[Controller IAM permissions](../../README.md#controller-iam-permissions).
+[Controller IAM permissions](../../docs/installation.md#controller-iam-permissions).
 
 ## Why this is not a custom resource
 

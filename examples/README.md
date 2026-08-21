@@ -25,14 +25,23 @@ Declarative, reviewed, slow-changing. These belong in git.
 | Example | What it shows |
 | --- | --- |
 | [`01-platform-quickstart/`](01-platform-quickstart/) | Build role and `MicrovmImage`, ending at `CREATED` with an image ARN to hand over |
-
-### Developer / CI
-
-| Example | What it shows |
-| --- | --- |
-| [`02-developer-handoff/`](02-developer-handoff/) | `FieldExport` publishing the image ARN into a developer namespace, and an application that runs MicroVMs from it without any custom resource |
 | [`03-long-lived-microvm/`](03-long-lived-microvm/) | The one case where a `Microvm` custom resource is right, and why it does not generalise to per-session MicroVMs |
 | [`04-features/`](04-features/) | Single-concern samples: logging, lifecycle hooks, run hook payloads, resource sizing |
 | [`05-lifecycle/`](05-lifecycle/) | Day-two operations: rebuilding to a new image version, and adopting an existing image |
 | [`06-kro/`](06-kro/) | A `MicrovmEnvironment` API composing log group, IAM roles and image into one custom resource with [kro](https://kro.run) |
+
+### Developer / CI
+
+Imperative, request-scoped, driven from application code or a pipeline. No custom
+resources.
+
+| Example | What it shows |
+| --- | --- |
+| [`02-developer-handoff/`](02-developer-handoff/) | `FieldExport` publishing the image ARN into a developer namespace, and an application that runs MicroVMs from it without any custom resource |
 | [`ci/`](ci/) | Packaging an application artifact and uploading it to S3, as a CI step rather than a custom resource |
+
+## Reference
+
+- [Installation](../docs/installation.md) — controller IAM permissions and chart values
+- [Resource reference](../docs/resource-reference.md) — every `MicrovmImage` and `Microvm` field
+- [Troubleshooting](../docs/troubleshooting.md) — conditions, build logs, common failures

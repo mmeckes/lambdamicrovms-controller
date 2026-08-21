@@ -19,7 +19,7 @@ of the repository README for why the line is drawn here.
 ## Prerequisites
 
 - The ACK Lambda MicroVMs controller, installed and running
-  ([installation](../../README.md#installation)).
+  ([installation](../../docs/installation.md)).
 - The [ACK IAM controller](https://github.com/aws-controllers-k8s/iam-controller),
   which reconciles the `Role` in `build-role.yaml`. If you would rather create the
   role out of band, skip that file and set `spec.buildRoleARN` on the image
@@ -113,7 +113,7 @@ The value is a full `MINOR.PATCH` pair — `1.0`, for instance — where the min
 component is whichever base image minor was latest at build time, so it changes
 as new base images ship. A resolved value in status alongside an empty
 `spec.baseImageVersion` is expected, and is not drift. See
-[Base image versions](../../README.md#base-image-versions).
+[Base image versions](../../docs/resource-reference.md#base-image-versions).
 
 ## If the build fails
 
